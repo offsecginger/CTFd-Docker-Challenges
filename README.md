@@ -39,7 +39,7 @@ This plugin for CTFd will allow your competing teams/users to start dockerized i
 * Support for client side validation TLS docker api connections (HIGHLY RECOMMENDED).
 * Docker container kill on solve.
 * (Mostly) Seamless integration with CTFd.
-* *Untested*: _Should_ be able to seamlessly integrate with other challenge types.
+* **Untested**: _Should_ be able to seamlessly integrate with other challenge types.
 
 ## Installation / Configuration
 
