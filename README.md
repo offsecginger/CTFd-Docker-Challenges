@@ -9,7 +9,7 @@ This plugin for CTFd will allow your competing teams/users to start dockerized i
 
 * It is unknown if using the same tag twice will cause issues. This plugin was written to avoid this issue, but it has not been fully tested.
 * As with all plugins, please security test your Scoreboard before launching the CTF. This plugin has been tested and vetted in the StormCTF environment, but yours may vary.
-* In 2.3.3 a CTFd Configuration change is *REQUIRED*. Specifically, https://github.com/CTFd/CTFd/issues/1370. You will need to replace the function `get_configurable_plugins` with the one in the solution. This allows `config.json` to be a list, which allows multiple Menu items per plugin for the Plugins dropdown. You may want to change any other plugins you install to accommodate this. It's as simple as enclosing the curly braces with square braces. Example below.
+* In 2.3.3 a CTFd Configuration change is **REQUIRED**. Specifically, https://github.com/CTFd/CTFd/issues/1370. You will need to replace the function `get_configurable_plugins` with the one in the solution. This allows `config.json` to be a list, which allows multiple Menu items per plugin for the Plugins dropdown. You may want to change any other plugins you install to accommodate this. It's as simple as enclosing the curly braces with square braces. Example below.
 
 ```
 # Original config.json
@@ -25,7 +25,7 @@ This plugin for CTFd will allow your competing teams/users to start dockerized i
 	"route": "/admin/plugin/route"
 }]
 ```
-*NOTE: The above config.json modification only applies to OTHER plugins installed.*
+**NOTE: The above config.json modification only applies to OTHER plugins installed.**
 
 *Requires flask_wtf*
 `pip install flask_wtf`
@@ -33,7 +33,7 @@ This plugin for CTFd will allow your competing teams/users to start dockerized i
 ## Features
 
 * Allows players to create their own docker container for docker challenges.
-* 5 minute rever timer.
+* 5 minute revert timer.
 * 2 hour stale container nuke.
 * Status panel for Admins to manage docker containers currently active.
 * Support for client side validation TLS docker api connections (HIGHLY RECOMMENDED).
