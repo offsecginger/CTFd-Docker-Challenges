@@ -15,11 +15,22 @@ from CTFd.api import CTFd_API_v1
 from CTFd.api.v1.scoreboard import ScoreboardDetail
 import CTFd.utils.scores
 from CTFd.api.v1.challenges import ChallengeList, Challenge
-from flask_restplus import Namespace, Resource
+from flask_restx import Namespace, Resource
 from flask import request, Blueprint, jsonify, abort, render_template, url_for, redirect, session
-from flask_wtf import FlaskForm
-from wtforms import TextField, SubmitField, BooleanField, HiddenField, FileField, SelectMultipleField
-from wtforms.validators import DataRequired, ValidationError
+#from flask_wtf import FlaskForm
+from wtforms import (
+    FileField,
+    HiddenField,
+    PasswordField,
+    RadioField,
+    SelectField,
+    StringField,
+    TextAreaField,
+    SelectMultipleField,
+    BooleanField,
+)
+#from wtforms import TextField, SubmitField, BooleanField, HiddenField, FileField, SelectMultipleField
+from wtforms.validators import DataRequired, ValidationError, InputRequired
 from werkzeug.utils import secure_filename
 import requests
 import tempfile
@@ -30,13 +41,18 @@ import hashlib
 import random
 from CTFd.plugins import register_admin_plugin_menu_bar
 
+from CTFd.forms import BaseForm
+from CTFd.forms.fields import SubmitField
+from CTFd.utils.config import get_themes
+
+
 class DockerConfig(db.Model):
 	"""
 	Docker Config Model. This model stores the config for docker API connections.
 	"""
 	id = db.Column(db.Integer, primary_key=True)
 	hostname = db.Column("hostname",db.String(64), index=True)
-	tls_enabled = db.Column("tls_enabled",db.Boolean, index=True)
+	tls_enabled = db.Column("tls_enabled",db.Boolean,default=False, index=True)
 	ca_cert = db.Column("ca_cert",db.String, index=True)
 	client_cert = db.Column("client_cert",db.String, index=True)
 	client_key = db.Column("client_key",db.String, index=True)
@@ -56,13 +72,13 @@ class DockerChallengeTracker(db.Model):
 	ports = db.Column('ports', db.String, index=True)
 	host = db.Column('host', db.String, index=True)
 
-class DockerConfigForm(FlaskForm):
-	"""
-	Docker Config Form. This Form Handles the Docker Config data.
-	"""
+
+class DockerConfigForm(BaseForm):
 	id = HiddenField()
-	hostname = TextField('Docker Hostname', render_kw={"placeholder": "10.10.10.10:2376", "autofocus" : "true"}, validators=[DataRequired("Hostname name is required")])
-	tls_enabled = BooleanField('TLS Enabled?')
+	hostname = StringField(
+		"Docker Hostname", description="The Hostname/IP and Port of your Docker Server"
+		)
+	tls_enabled = RadioField('TLS Enabled?')
 	ca_cert = FileField('CA Cert')
 	client_cert = FileField('Client Cert')
 	client_key = FileField('Client Key')
@@ -90,13 +106,17 @@ def define_docker_admin(app):
 			if len(ca_cert) != 0: b.ca_cert = ca_cert
 			if len(client_cert) != 0: b.client_cert = client_cert
 			if len(client_key) != 0: b.client_key = client_key
-			b.hostname = form.hostname.data
-			b.tls_enabled = form.tls_enabled.data
+			b.hostname = request.form['hostname']
+			b.tls_enabled = request.form['tls_enabled']
+			if b.tls_enabled == "True":
+				b.tls_enabled = True
+			else: b.tls_enabled = False
 			if not b.tls_enabled:
 				b.ca_cert = None
 				b.client_cert = None
 				b.client_key = None
-			b.repositories = ','.join(form.repositories.data) or None
+			try: b.repositories = ','.join(request.form.to_dict(flat=False)['repositories'])
+			except: b.repositories = None
 			db.session.add(b)
 			db.session.commit()
 			docker = DockerConfig.query.filter_by(id=1).first()
@@ -110,7 +130,8 @@ def define_docker_admin(app):
 			form.repositories.choices = [(d, d) for d in repos]
 		dconfig = DockerConfig.query.first()
 		try:
-			selected_repos = dconfig.repositories.split(',')
+			selected_repos = dconfig.repositories
+			# selected_repos = dconfig.repositories.split(',')
 		except:
 			selected_repos = []
 		return render_template("docker_config.html", config=dconfig, form=form, repos=selected_repos)
@@ -304,7 +325,7 @@ def create_container(docker, image, team, portbl):
 				break
 	ports = dict()
 	bindings = dict()
-	tmp_ports = assigned_ports.keys()
+	tmp_ports = list(assigned_ports.keys())
 	for i in needed_ports:
 		ports[i] = { }
 		bindings[i] = [{ "HostPort": tmp_ports.pop()}]
@@ -451,7 +472,10 @@ class DockerChallengeType(BaseChallenge):
 		:param request: The request the user submitted
 		:return: (boolean, string)
 		"""
+
 		data = request.form or request.get_json()
+		print(request.get_json())
+		print(data)
 		submission = data["submission"].strip()
 		flags = Flags.query.filter_by(challenge_id=challenge.id).all()
 		for flag in flags:

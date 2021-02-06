@@ -27,12 +27,11 @@
                     {% endif %}
                 </div>
                 <div class="form-group">
-                    {% if config.tls_enabled %}
-                    <input type="checkbox" name="tls_enabled" id="tls-checkbox" value="True" onclick="enable_file_form(this.checked)" checked />
-                    {% else %}
-                    <input type="checkbox" name="tls_enabled" id="tls-checkbox" value="False" onclick="enable_file_form(this.checked)" />
-                    {% endif %}
-                    <label for="tls-checkbox">TLS Enabled?</label>
+                    <p>TLS Enabled?</p>
+                    <input type="radio" name="tls_enabled" id="tls-radiobox-no" value="False" onclick="enable_file_form(!this.checked)" {% if not config.tls_enabled %}checked{% endif %} />
+                    <label for="tls-radiobox-no">No</label>
+                    <input type="radio" name="tls_enabled" id="tls-radiobox-yes" value="True" onclick="enable_file_form(this.checked)"{% if config.tls_enabled %}checked{% endif %} />
+                    <label for="tls-radiobox-yes">Yes</label>
                 </div>
                 <div class="form-group">
                     <label for="ca-file">
@@ -72,13 +71,13 @@
                         {% endif %}
                     </select>
                 </div>
+                {{ form.nonce() }}
                 <div class="col-md-13 text-center">
                     <button type="submit" tabindex="0" class="btn btn-md btn-primary btn-outlined">
                         Submit
                     </button>
                 </div>
         </div>
-        <input type="hidden" name="nonce" value="{{ nonce }}">
         <input type="hidden" name="id" value="1">
         </form>
     </div>
