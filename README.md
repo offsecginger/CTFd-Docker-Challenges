@@ -53,8 +53,8 @@ This plugin for CTFd will allow your competing teams/users to start dockerized i
 * Confirm users are able to start/revert and access docker challenges.
 * Host an awesome CTF!
 
-### Update: 20200504
-Works with 2.3.3
+### Update: 20210206
+Works with 3.2.1
 
 * Updated the entire plugin to work with the new CTFd.
 
