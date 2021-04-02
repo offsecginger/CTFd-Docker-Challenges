@@ -131,6 +131,8 @@ def define_docker_admin(app):
 		dconfig = DockerConfig.query.first()
 		try:
 			selected_repos = dconfig.repositories
+			if selected_repos == None:
+				selected_repos = list()
 			# selected_repos = dconfig.repositories.split(',')
 		except:
 			selected_repos = []
@@ -239,13 +241,13 @@ def get_unavailable_ports(docker):
 			client = docker.client_cert
 			ckey = docker.client_key
 			ca_file = tempfile.NamedTemporaryFile(delete=False)
-			ca_file.write(ca)
+			ca_file.write(bytes(ca, 'utf-8'))
 			ca_file.seek(0)
 			client_file = tempfile.NamedTemporaryFile(delete=False)
-			client_file.write(client)
+			client_file.write(bytes(client, 'utf-8'))
 			client_file.seek(0)
 			key_file = tempfile.NamedTemporaryFile(delete=False)
-			key_file.write(ckey)
+			key_file.write(bytes(ckey, 'utf-8'))
 			key_file.seek(0)
 			CERT = (client_file.name,key_file.name)
 		except:
