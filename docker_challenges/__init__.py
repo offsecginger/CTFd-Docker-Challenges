@@ -177,6 +177,8 @@ def define_docker_admin(app):
 		dconfig = DockerConfig.query.first()
 		try:
 			selected_repos = dconfig.repositories
+			if selected_repos == None:
+				selected_repos = list()
 			# selected_repos = dconfig.repositories.split(',')
 			#Ajout de l'initialisation de la liste pour éviter l'erreur Nonetype lorsque la liste
 			#N'est pas initialisée
@@ -244,13 +246,13 @@ def get_repositories(docker, tags=False, repos=False):
 			client = docker.client_cert
 			ckey = docker.client_key
 			ca_file = tempfile.NamedTemporaryFile(delete=False)
-			ca_file.write(ca.encode())
+			ca_file.write(bytes(ca,'utf-8'))
 			ca_file.seek(0)
 			client_file = tempfile.NamedTemporaryFile(delete=False)
-			client_file.write(client.encode())
+			client_file.write(bytes(client,'utf-8'))
 			client_file.seek(0)
 			key_file = tempfile.NamedTemporaryFile(delete=False)
-			key_file.write(ckey.encode())
+			key_file.write(bytes(ckey,'utf-8'))
 			key_file.seek(0)
 			CERT = (client_file.name,key_file.name)
 		except Exception as e :
@@ -326,13 +328,13 @@ def get_required_ports(docker, image):
 			client = docker.client_cert
 			ckey = docker.client_key
 			ca_file = tempfile.NamedTemporaryFile(delete=False)
-			ca_file.write(ca.encode())
+			ca_file.write(bytes(ca,'utf-8'))
 			ca_file.seek(0)
 			client_file = tempfile.NamedTemporaryFile(delete=False)
-			client_file.write(client.encode())
+			client_file.write(bytes(client,'utf-8'))
 			client_file.seek(0)
 			key_file = tempfile.NamedTemporaryFile(delete=False)
-			key_file.write(ckey.encode())
+			key_file.write(bytes(ckey,'utf-8'))
 			key_file.seek(0)
 			CERT = (client_file.name,key_file.name)
 		except:
@@ -411,6 +413,8 @@ def create_container(docker, image, team, portbl):
     s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=CERT, verify=ca_file.name, headers=headers)
     return result,data
 
+
+
 def delete_container(docker, instance_id):
 	tls = docker.tls_enabled
 	if not tls:
@@ -422,13 +426,13 @@ def delete_container(docker, instance_id):
 			client = docker.client_cert
 			ckey = docker.client_key
 			ca_file = tempfile.NamedTemporaryFile(delete=False)
-			ca_file.write(ca.encode())
+			ca_file.write(bytes(ca,'utf-8'))
 			ca_file.seek(0)
 			client_file = tempfile.NamedTemporaryFile(delete=False)
-			client_file.write(client.encode())
+			client_file.write(bytes(client,'utf-8'))
 			client_file.seek(0)
 			key_file = tempfile.NamedTemporaryFile(delete=False)
-			key_file.write(ckey.encode())
+			key_file.write(bytes(ckey,'utf-8'))
 			key_file.seek(0)
 			CERT = (client_file.name,key_file.name)
 		except:
