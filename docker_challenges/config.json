@@ -6,5 +6,9 @@
 	{
 	    "name": "Docker Status",
 	    "route": "/admin/docker_status"
+	},
+	{
+			"name": "Docker Upload",
+			"route": "/admin/docker_upload"
 	}
 ]

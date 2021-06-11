@@ -32,8 +32,10 @@ from wtforms import (
 #from wtforms import TextField, SubmitField, BooleanField, HiddenField, FileField, SelectMultipleField
 from wtforms.validators import DataRequired, ValidationError, InputRequired
 from werkzeug.utils import secure_filename
+import docker
 import requests
 import tempfile
+import os
 from CTFd.utils.dates import unix_time
 from datetime import datetime
 import json
@@ -53,37 +55,80 @@ class DockerConfig(db.Model):
 	id = db.Column(db.Integer, primary_key=True)
 	hostname = db.Column("hostname",db.String(64), index=True)
 	tls_enabled = db.Column("tls_enabled",db.Boolean,default=False, index=True)
-	ca_cert = db.Column("ca_cert",db.String, index=True)
-	client_cert = db.Column("client_cert",db.String, index=True)
-	client_key = db.Column("client_key",db.String, index=True)
-	repositories = db.Column("repositories",db.String, index=True)
+	ca_cert = db.Column("ca_cert",db.Text)
+	client_cert = db.Column("client_cert",db.Text)
+	client_key = db.Column("client_key",db.Text)
+	repositories = db.Column("repositories",db.Text)
 
 class DockerChallengeTracker(db.Model):
 	"""
 	Docker Container Tracker. This model stores the users/teams active docker containers.
 	"""
 	id = db.Column(db.Integer, primary_key=True)
-	team_id = db.Column("team_id",db.String, index=True)
-	user_id = db.Column("user_id",db.String, index=True)
-	docker_image = db.Column("docker_image",db.String, index=True)
+	team_id = db.Column("team_id",db.String(64), index=True)
+	user_id = db.Column("user_id",db.String(64), index=True)
+	docker_image = db.Column("docker_image",db.String(64), index=True)
 	timestamp = db.Column("timestamp",db.Integer, index=True)
 	revert_time = db.Column("revert_time",db.Integer, index=True)
-	instance_id = db.Column("instance_id",db.String, index=True)
-	ports = db.Column('ports', db.String, index=True)
-	host = db.Column('host', db.String, index=True)
+	instance_id = db.Column("instance_id",db.String(64), index=True)
+	ports = db.Column('ports', db.String(64), index=True)
+	host = db.Column('host', db.String(64), index=True)
 
 
 class DockerConfigForm(BaseForm):
-	id = HiddenField()
-	hostname = StringField(
-		"Docker Hostname", description="The Hostname/IP and Port of your Docker Server"
-		)
-	tls_enabled = RadioField('TLS Enabled?')
-	ca_cert = FileField('CA Cert')
-	client_cert = FileField('Client Cert')
-	client_key = FileField('Client Key')
-	repositories = SelectMultipleField('Repositories')
-	submit = SubmitField('Submit')
+    id = HiddenField()
+    hostname = StringField(
+        "Docker Hostname", description="The Hostname/IP and Port of your Docker Server"
+    )
+    tls_enabled = RadioField('TLS Enabled?')
+    ca_cert = FileField('CA Cert')
+    client_cert = FileField('Client Cert')
+    client_key = FileField('Client Key')
+    repositories = SelectMultipleField('Repositories')
+    submit = SubmitField('Submit')
+
+
+class DockerUploadForm(BaseForm):
+    uploaded_file = FileField('docker_image')
+    submit = SubmitField('Submit')
+
+
+#Patch pour l'ajout d'image docker. Le petit soucis ici c'est qu'on utilise le SDK docker python au lieu de l'API Docker
+#A modifier si cela pose probléme
+
+def define_docker_upload(app) :
+    admin_docker_upload = Blueprint('admin_docker_upload', __name__, template_folder='templates', static_folder='assets')
+    @admin_docker_upload.route("/admin/docker_upload", methods=["GET", "POST"])
+    @admins_only
+    def docker_upload():
+        form = DockerUploadForm()
+        if request.method == "POST" :
+            app.config['UPLOAD_FOLDER'] = 'CTFd/plugins/docker_challenges/docker_tar'
+            file = request.files['docker_image']
+            if file.filename != "" :
+                # TODO:
+                # WARNING: PAS DE SECURITE DANS LA GESTION DU NOM DU FICHIER !!!!!!
+                # WARNING: IMPLEMENTER LA RECONNAISSANCE D'EXTENSION
+                filename = secure_filename(file.filename)
+                file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+                try :
+
+                    #Sauvegarde du tar terminé, on va maitenant importer l'image
+                    client = docker.from_env()
+                    image_tar = open(os.path.join(app.config['UPLOAD_FOLDER'], filename), "rb")
+                    client.images.load(image_tar)
+
+                except Exception as e :
+                    print(e)
+
+
+        return render_template('docker_upload.html', form = form)
+    app.register_blueprint(admin_docker_upload )
+
+
+
+
 
 def define_docker_admin(app):
 	admin_docker_config = Blueprint('admin_docker_config', __name__, template_folder='templates', static_folder='assets')
@@ -122,6 +167,7 @@ def define_docker_admin(app):
 			docker = DockerConfig.query.filter_by(id=1).first()
 		try:
 			repos = get_repositories(docker)
+
 		except:
 			repos = list()
 		if len(repos) == 0:
@@ -132,6 +178,10 @@ def define_docker_admin(app):
 		try:
 			selected_repos = dconfig.repositories
 			# selected_repos = dconfig.repositories.split(',')
+			#Ajout de l'initialisation de la liste pour éviter l'erreur Nonetype lorsque la liste
+			#N'est pas initialisée
+			if selected_repos == None :
+				selected_repos = []
 		except:
 			selected_repos = []
 		return render_template("docker_config.html", config=dconfig, form=form, repos=selected_repos)
@@ -187,22 +237,26 @@ def get_repositories(docker, tags=False, repos=False):
 		prefix = 'http'
 	else:
 		prefix = 'https'
+
 		try:
+			#Modification de cette partie pour être compatible avec mysql
 			ca = docker.ca_cert
 			client = docker.client_cert
 			ckey = docker.client_key
 			ca_file = tempfile.NamedTemporaryFile(delete=False)
-			ca_file.write(ca)
+			ca_file.write(ca.encode())
 			ca_file.seek(0)
 			client_file = tempfile.NamedTemporaryFile(delete=False)
-			client_file.write(client)
+			client_file.write(client.encode())
 			client_file.seek(0)
 			key_file = tempfile.NamedTemporaryFile(delete=False)
-			key_file.write(ckey)
+			key_file.write(ckey.encode())
 			key_file.seek(0)
 			CERT = (client_file.name,key_file.name)
-		except:
+		except Exception as e :
+			print(e)
 			return []
+
 	host = docker.hostname
 	URL_TEMPLATE = '%s://%s' % (prefix, host)
 	if tls:
@@ -229,36 +283,37 @@ def get_repositories(docker, tags=False, repos=False):
 	return list(set(result))
 
 def get_unavailable_ports(docker):
-	tls = docker.tls_enabled
-	if not tls:
-		prefix = 'http'
-	else:
-		prefix = 'https'
-		try:
-			ca = docker.ca_cert
-			client = docker.client_cert
-			ckey = docker.client_key
-			ca_file = tempfile.NamedTemporaryFile(delete=False)
-			ca_file.write(ca)
-			ca_file.seek(0)
-			client_file = tempfile.NamedTemporaryFile(delete=False)
-			client_file.write(client)
-			client_file.seek(0)
-			key_file = tempfile.NamedTemporaryFile(delete=False)
-			key_file.write(ckey)
-			key_file.seek(0)
-			CERT = (client_file.name,key_file.name)
-		except:
-			return []
-	host = docker.hostname
-	URL_TEMPLATE = '%s://%s' % (prefix, host)
-	r = requests.get(url="%s/containers/json?all=1" % URL_TEMPLATE, cert=CERT, verify=ca_file.name)
-	result = list()
-	for i in r.json():
-		if not i['Ports'] == []:
-			for p in i['Ports']:
-				result.append(p['PublicPort'])
-	return result
+    tls = docker.tls_enabled
+    if not tls:
+        prefix = 'http'
+    else:
+        prefix = 'https'
+        try:
+            ca = docker.ca_cert
+            client = docker.client_cert
+            ckey = docker.client_key
+            ca_file = tempfile.NamedTemporaryFile(delete=False)
+            ca_file.write(ca.encode())
+            ca_file.seek(0)
+            client_file = tempfile.NamedTemporaryFile(delete=False)
+            client_file.write(client.encode())
+            client_file.seek(0)
+            key_file = tempfile.NamedTemporaryFile(delete=False)
+            key_file.write(ckey.encode())
+            key_file.seek(0)
+            CERT = (client_file.name,key_file.name)
+        except:
+            return []
+    host = docker.hostname
+    URL_TEMPLATE = '%s://%s' % (prefix, host)
+    r = requests.get(url="%s/containers/json?all=1" % URL_TEMPLATE, cert=CERT, verify=ca_file.name)
+    result = list()
+    for i in r.json():
+        #print(r.json())
+        if not i['Ports'] == []:
+            for p in i['Ports']:
+                result.append(p['PublicPort'])
+                return result
 
 def get_required_ports(docker, image):
 	tls = docker.tls_enabled
@@ -271,13 +326,13 @@ def get_required_ports(docker, image):
 			client = docker.client_cert
 			ckey = docker.client_key
 			ca_file = tempfile.NamedTemporaryFile(delete=False)
-			ca_file.write(ca)
+			ca_file.write(ca.encode())
 			ca_file.seek(0)
 			client_file = tempfile.NamedTemporaryFile(delete=False)
-			client_file.write(client)
+			client_file.write(client.encode())
 			client_file.seek(0)
 			key_file = tempfile.NamedTemporaryFile(delete=False)
-			key_file.write(ckey)
+			key_file.write(ckey.encode())
 			key_file.seek(0)
 			CERT = (client_file.name,key_file.name)
 		except:
@@ -290,51 +345,71 @@ def get_required_ports(docker, image):
 
 
 def create_container(docker, image, team, portbl):
-	tls = docker.tls_enabled
-	if not tls:
-		prefix = 'http'
-	else:
-		prefix = 'https'
-		try:
-			ca = docker.ca_cert
-			client = docker.client_cert
-			ckey = docker.client_key
-			ca_file = tempfile.NamedTemporaryFile(delete=False)
-			ca_file.write(ca)
-			ca_file.seek(0)
-			client_file = tempfile.NamedTemporaryFile(delete=False)
-			client_file.write(client)
-			client_file.seek(0)
-			key_file = tempfile.NamedTemporaryFile(delete=False)
-			key_file.write(ckey)
-			key_file.seek(0)
-			CERT = (client_file.name,key_file.name)
-		except:
-			return []
-	host = docker.hostname
-	URL_TEMPLATE = '%s://%s' % (prefix, host)
-	needed_ports = get_required_ports(docker, image)
-	team = hashlib.md5(team.encode("utf-8")).hexdigest()[:10]
-	container_name = "%s_%s" % (image.split(':')[1], team)
-	assigned_ports = dict()
-	for i in needed_ports:
-		while True:
-			assigned_port = random.choice(range(30000,60000))
-			if assigned_port not in portbl:
-				assigned_ports['%s/tcp' % assigned_port] = { }
-				break
-	ports = dict()
-	bindings = dict()
-	tmp_ports = list(assigned_ports.keys())
-	for i in needed_ports:
-		ports[i] = { }
-		bindings[i] = [{ "HostPort": tmp_ports.pop()}]
-	headers = {'Content-Type': "application/json"}
-	data = json.dumps({"Image": image, "ExposedPorts": ports, "HostConfig" : { "PortBindings" : bindings } })
-	r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=CERT, verify=ca_file.name, data=data, headers=headers)
-	result = r.json()
-	s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=CERT, verify=ca_file.name, headers=headers)
-	return result,data
+    tls = docker.tls_enabled
+    if not tls:
+        prefix = 'http'
+    else:
+        prefix = 'https'
+        try:
+            ca = docker.ca_cert
+            client = docker.client_cert
+            ckey = docker.client_key
+            ca_file = tempfile.NamedTemporaryFile(delete=False)
+            ca_file.write(ca.encode())
+            ca_file.seek(0)
+            client_file = tempfile.NamedTemporaryFile(delete=False)
+            client_file.write(client.encode())
+            client_file.seek(0)
+            key_file = tempfile.NamedTemporaryFile(delete=False)
+            key_file.write(ckey.encode())
+            key_file.seek(0)
+            CERT = (client_file.name,key_file.name)
+        except:
+            return []
+    host = docker.hostname
+    URL_TEMPLATE = '%s://%s' % (prefix, host)
+    needed_ports = get_required_ports(docker, image)
+    team = hashlib.md5(team.encode("utf-8")).hexdigest()[:10]
+    container_name = "%s_%s" % (image.split(':')[1], team)
+    assigned_ports = dict()
+    for i in needed_ports:
+        # Ici j'ai ajouté un patch donnant la possibilité de lancer les conteneurs même si aucun conteneur n'est lancé
+        while True:
+            assigned_port = random.choice(range(30000,60000))
+            if portbl == None :
+                assigned_ports['%s/tcp' % assigned_port] = { }
+                break
+            if assigned_port not in portbl:
+                assigned_ports['%s/tcp' % assigned_port] = { }
+                break
+    ports = dict()
+    bindings = dict()
+    tmp_ports = list(assigned_ports.keys())
+    for i in needed_ports:
+        ports[i] = { }
+        bindings[i] = [{ "HostPort": tmp_ports.pop()}]
+    headers = {'Content-Type': "application/json"}
+    data = json.dumps({"Image": image, "ExposedPorts": ports, "HostConfig" : { "PortBindings" : bindings } })
+    r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=CERT, verify=ca_file.name, data=data, headers=headers)
+    result = r.json()
+    # Les conteneurs se suppriment maintenant
+    # Les conteneurs sont automatiquement supprimés de la base de donnée
+    print(result)
+    if("message" in result) :
+        if("Conflict" in result["message"]) :
+            id = result["message"][82:146]
+            delete_container(docker,id)
+            DockerChallengeTracker.query.filter_by(instance_id=id).delete()
+            docker_tracker = DockerChallengeTracker.query.all()
+
+            db.session.commit()
+            r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=CERT, verify=ca_file.name, data=data, headers=headers)
+            result = r.json()
+            print(result)
+
+
+    s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=CERT, verify=ca_file.name, headers=headers)
+    return result,data
 
 def delete_container(docker, instance_id):
 	tls = docker.tls_enabled
@@ -347,13 +422,13 @@ def delete_container(docker, instance_id):
 			client = docker.client_cert
 			ckey = docker.client_key
 			ca_file = tempfile.NamedTemporaryFile(delete=False)
-			ca_file.write(ca)
+			ca_file.write(ca.encode())
 			ca_file.seek(0)
 			client_file = tempfile.NamedTemporaryFile(delete=False)
-			client_file.write(client)
+			client_file.write(client.encode())
 			client_file.seek(0)
 			key_file = tempfile.NamedTemporaryFile(delete=False)
-			key_file.write(ckey)
+			key_file.write(ckey.encode())
 			key_file.seek(0)
 			CERT = (client_file.name,key_file.name)
 		except:
@@ -415,8 +490,12 @@ class DockerChallengeType(BaseChallenge):
 		ChallengeFiles.query.filter_by(challenge_id=challenge.id).delete()
 		Tags.query.filter_by(challenge_id=challenge.id).delete()
 		Hints.query.filter_by(challenge_id=challenge.id).delete()
-		Challenges.query.filter_by(id=challenge.id).delete()
+
+		#Pour bloquer le probléme de la suppression j'ai inversé les deux avant derniéres lignes afin de
+		#respecter les contraintes des clefs étrangéres
+
 		DockerChallenge.query.filter_by(id=challenge.id).delete()
+		Challenges.query.filter_by(id=challenge.id).delete()
 		db.session.commit()
 
 	@staticmethod
@@ -459,6 +538,7 @@ class DockerChallengeType(BaseChallenge):
 		challenge = DockerChallenge(**data)
 		db.session.add(challenge)
 		db.session.commit()
+
 		return challenge
 
 	@staticmethod
@@ -483,6 +563,8 @@ class DockerChallengeType(BaseChallenge):
 				return True, "Correct"
 		return False, "Incorrect"
 
+    # TODO: Les challenges docker ne se solvent pas corréctement pour le moment
+
 	@staticmethod
 	def solve(user, team, challenge, request):
 		"""
@@ -492,7 +574,7 @@ class DockerChallengeType(BaseChallenge):
 		:param chal: The Challenge object from the database
 		:param request: The request the user submitted
 		:return:
-		"""		
+		"""
 		data = request.form or request.get_json()
 		submission = data["submission"].strip()
 		docker = DockerConfig.query.filter_by(id=1).first()
@@ -540,9 +622,10 @@ class DockerChallengeType(BaseChallenge):
 		db.session.close()
 
 class DockerChallenge(Challenges):
-	__mapper_args__ = {'polymorphic_identity': 'docker'}
-	id = db.Column(None, db.ForeignKey('challenges.id'), primary_key=True)
-	docker_image = db.Column(db.String, index=True)
+    __mapper_args__ = {'polymorphic_identity': 'docker'}
+    id = db.Column(None, db.ForeignKey('challenges.id'), primary_key=True)
+    docker_image = db.Column(db.String(64), index=True)
+    file_data = ""
 
 # API
 container_namespace = Namespace("container", description='Endpoint to interact with containers')
@@ -587,7 +670,9 @@ class ContainerAPI(Resource):
 				DockerChallengeTracker.query.filter_by(user_id=session.id).filter_by(docker_image=container).delete()
 			db.session.commit()
 		portsbl = get_unavailable_ports(docker)
+        # TODO: On peu aussi ajouter la suppression ici ça devrais être plus propre
 		create = create_container(docker,container,session.name,portsbl)
+
 		ports = json.loads(create[1])['HostConfig']['PortBindings'].values()
 		entry = DockerChallengeTracker(
 			team_id = session.id if is_teams_mode() else None,
@@ -623,10 +708,10 @@ class DockerStatus(Resource):
 		data = list()
 		for i in tracker:
 			data.append({
-				'id' : i.id, 
-				'team_id' : i.team_id, 
-				'user_id' : i.user_id, 
-				'docker_image' : i.docker_image, 
+				'id' : i.id,
+				'team_id' : i.team_id,
+				'user_id' : i.user_id,
+				'docker_image' : i.docker_image,
 				'timestamp' : i.timestamp,
 				'revert_time' : i.revert_time,
 				'instance_id' : i.instance_id,
@@ -668,12 +753,13 @@ class DockerAPI(Resource):
 			}, 400
 
 def load(app):
-	app.db.create_all()
-	CHALLENGE_CLASSES['docker'] = DockerChallengeType
-	register_plugin_assets_directory(app, base_path='/plugins/docker_challenges/assets')
-	define_docker_admin(app)
-	define_docker_status(app)
-	CTFd_API_v1.add_namespace(docker_namespace, '/docker')
-	CTFd_API_v1.add_namespace(container_namespace, '/container')
-	CTFd_API_v1.add_namespace(active_docker_namespace, '/docker_status')
-	CTFd_API_v1.add_namespace(kill_container, '/nuke')
+    app.db.create_all()
+    CHALLENGE_CLASSES['docker'] = DockerChallengeType
+    register_plugin_assets_directory(app, base_path='/plugins/docker_challenges/assets')
+    define_docker_admin(app)
+    define_docker_status(app)
+    define_docker_upload(app)
+    CTFd_API_v1.add_namespace(docker_namespace, '/docker')
+    CTFd_API_v1.add_namespace(container_namespace, '/container')
+    CTFd_API_v1.add_namespace(active_docker_namespace, '/docker_status')
+    CTFd_API_v1.add_namespace(kill_container, '/nuke')
