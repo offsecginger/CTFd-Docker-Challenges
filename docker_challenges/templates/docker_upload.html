@@ -9,12 +9,12 @@
 </div>
 <div class="container">
     <form method="post" accept-charset="utf-8" autocomplete="off" role="form" name='docker_uploader' class="form-horizontal" enctype="multipart/form-data">
-      <label> Uploadez votre docker (Utilisez la commande docker save) </label>
-      <label> Lors de la création de votre challenge, veuillez le nommer de la façon suivante : </label>
-      <label> Auteur/nom du challenge </label>
+      <label> Upload your docker (Use the docker save command) </label>
+      <label> When creating your challenge, please name it as follows: </label>
+      <label> Author/name_of_the_challenge </label>
       <br>
-      <label> L'image docker doit déja avoir les ports necessaires exposés. Un numéros de port au hasard
-        sera attribué à chaque port. Le challenge doit aussi être nommé avant d'utiliser la commande save permettant de créer l'archive tar </label>
+      <label> The docker image should already have the necessary ports exposed. A random port number
+        will be assigned to each port. The challenge must also be named before using the save command to create the tar archive </label>
       <input type="file" name="docker_image">
 
       {{ form.nonce() }}
