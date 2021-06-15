@@ -93,8 +93,8 @@ class DockerUploadForm(BaseForm):
     submit = SubmitField('Submit')
 
 
-#Patch pour l'ajout d'image docker. Le petit soucis ici c'est qu'on utilise le SDK docker python au lieu de l'API Docker
-#A modifier si cela pose probléme
+#Patch for docker image addition. The little problem here is that we use the docker python SDK instead of the Docker API
+#To be modified if this is a problem
 
 def define_docker_upload(app) :
     admin_docker_upload = Blueprint('admin_docker_upload', __name__, template_folder='templates', static_folder='assets')
@@ -105,16 +105,14 @@ def define_docker_upload(app) :
         if request.method == "POST" :
             app.config['UPLOAD_FOLDER'] = 'CTFd/plugins/docker_challenges/docker_tar'
             file = request.files['docker_image']
-            if file.filename != "" :
-                # TODO:
-                # WARNING: PAS DE SECURITE DANS LA GESTION DU NOM DU FICHIER !!!!!!
-                # WARNING: IMPLEMENTER LA RECONNAISSANCE D'EXTENSION
+            if file.filename != "" 
+	
                 filename = secure_filename(file.filename)
                 file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
                 try :
 
-                    #Sauvegarde du tar terminé, on va maitenant importer l'image
+                    # import the image
                     client = docker.from_env()
                     image_tar = open(os.path.join(app.config['UPLOAD_FOLDER'], filename), "rb")
                     client.images.load(image_tar)
@@ -180,8 +178,8 @@ def define_docker_admin(app):
 			if selected_repos == None:
 				selected_repos = list()
 			# selected_repos = dconfig.repositories.split(',')
-			#Ajout de l'initialisation de la liste pour éviter l'erreur Nonetype lorsque la liste
-			#N'est pas initialisée
+			#Added list initialization to avoid Nonetype error when the list
+			#is not initialized
 			if selected_repos == None :
 				selected_repos = []
 		except:
@@ -241,7 +239,7 @@ def get_repositories(docker, tags=False, repos=False):
 		prefix = 'https'
 
 		try:
-			#Modification de cette partie pour être compatible avec mysql
+			# Mysql compatibility modidfication
 			ca = docker.ca_cert
 			client = docker.client_cert
 			ckey = docker.client_key
@@ -375,7 +373,7 @@ def create_container(docker, image, team, portbl):
     container_name = "%s_%s" % (image.split(':')[1], team)
     assigned_ports = dict()
     for i in needed_ports:
-        # Ici j'ai ajouté un patch donnant la possibilité de lancer les conteneurs même si aucun conteneur n'est lancé
+        # Here I added a patch giving the possibility to launch containers even if no container is launched
         while True:
             assigned_port = random.choice(range(30000,60000))
             if portbl == None :
@@ -394,8 +392,8 @@ def create_container(docker, image, team, portbl):
     data = json.dumps({"Image": image, "ExposedPorts": ports, "HostConfig" : { "PortBindings" : bindings } })
     r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=CERT, verify=ca_file.name, data=data, headers=headers)
     result = r.json()
-    # Les conteneurs se suppriment maintenant
-    # Les conteneurs sont automatiquement supprimés de la base de donnée
+    # Containers are now deleted
+    # Containers are automatically deleted from the database too
     print(result)
     if("message" in result) :
         if("Conflict" in result["message"]) :
@@ -495,8 +493,8 @@ class DockerChallengeType(BaseChallenge):
 		Tags.query.filter_by(challenge_id=challenge.id).delete()
 		Hints.query.filter_by(challenge_id=challenge.id).delete()
 
-		#Pour bloquer le probléme de la suppression j'ai inversé les deux avant derniéres lignes afin de
-		#respecter les contraintes des clefs étrangéres
+		#To block the problem of deletion I reversed the two last lines in order to
+		#respect the constraints of foreign keys
 
 		DockerChallenge.query.filter_by(id=challenge.id).delete()
 		Challenges.query.filter_by(id=challenge.id).delete()
@@ -567,7 +565,7 @@ class DockerChallengeType(BaseChallenge):
 				return True, "Correct"
 		return False, "Incorrect"
 
-    # TODO: Les challenges docker ne se solvent pas corréctement pour le moment
+    # TODO: The docker challenges do not solve themself correctly for now
 
 	@staticmethod
 	def solve(user, team, challenge, request):
@@ -674,7 +672,6 @@ class ContainerAPI(Resource):
 				DockerChallengeTracker.query.filter_by(user_id=session.id).filter_by(docker_image=container).delete()
 			db.session.commit()
 		portsbl = get_unavailable_ports(docker)
-        # TODO: On peu aussi ajouter la suppression ici ça devrais être plus propre
 		create = create_container(docker,container,session.name,portsbl)
 
 		ports = json.loads(create[1])['HostConfig']['PortBindings'].values()
