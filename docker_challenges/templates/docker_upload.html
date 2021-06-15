@@ -1,0 +1,32 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+
+
+<div class="jumbotron">
+    <div class="container">
+        <h1>Docker Upload</h1>
+    </div>
+</div>
+<div class="container">
+    <form method="post" accept-charset="utf-8" autocomplete="off" role="form" name='docker_uploader' class="form-horizontal" enctype="multipart/form-data">
+      <label> Uploadez votre docker (Utilisez la commande docker save) </label>
+      <label> Lors de la création de votre challenge, veuillez le nommer de la façon suivante : </label>
+      <label> Auteur/nom du challenge </label>
+      <br>
+      <label> L'image docker doit déja avoir les ports necessaires exposés. Un numéros de port au hasard
+        sera attribué à chaque port. Le challenge doit aussi être nommé avant d'utiliser la commande save permettant de créer l'archive tar </label>
+      <input type="file" name="docker_image">
+
+      {{ form.nonce() }}
+
+      <div class="col-md-13 text-center">
+        <button type="submit" tabindex="0" class="btn btn-md btn-primary btn-outlined">
+            Submit
+        </button>
+      </div>
+
+    </form>
+</div>
+
+
+{% endblock content %}
