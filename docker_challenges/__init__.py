@@ -157,7 +157,7 @@ def define_docker_admin(app):
         except:
             print(traceback.print_exc())
             selected_repos = []
-        return render_template("docker_config.html", config=dconfig, form=form, repos=selected_repos)
+        return render_template("admin_docker_config.html", config=dconfig, form=form, repos=selected_repos)
 
     app.register_blueprint(admin_docker_config)
 
