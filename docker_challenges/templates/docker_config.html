@@ -1,5 +1,8 @@
 {% extends 'admin/base.html' %}
 {% block content %}
+{% with page = "config" %}
+{% include "./admin_docker_menu.html" %}
+{% endwith %}
 <div class="jumbotron">
     <div class="container">
         <h1>Docker Config</h1>
