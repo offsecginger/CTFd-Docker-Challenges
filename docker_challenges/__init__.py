@@ -238,13 +238,13 @@ def get_client_cert(docker):
         client = docker.client_cert
         ckey = docker.client_key
         ca_file = tempfile.NamedTemporaryFile(delete=False)
-        ca_file.write(bytes(ca,'utf-8'))
+        ca_file.write(ca)
         ca_file.seek(0)
         client_file = tempfile.NamedTemporaryFile(delete=False)
-        client_file.write(bytes(client,'utf-8'))
+        client_file.write(client)
         client_file.seek(0)
         key_file = tempfile.NamedTemporaryFile(delete=False)
-        key_file.write(bytes(ckey,'utf-8'))
+        key_file.write(ckey)
         key_file.seek(0)
         CERT = (client_file.name, key_file.name)
     except:
@@ -298,13 +298,13 @@ def create_container(docker, image, team, portbl):
             client = docker.client_cert
             ckey = docker.client_key
             ca_file = tempfile.NamedTemporaryFile(delete=False)
-            ca_file.write(bytes(ca,'utf-8'))
+            ca_file.write(ca)
             ca_file.seek(0)
             client_file = tempfile.NamedTemporaryFile(delete=False)
-            client_file.write(bytes(client,'utf-8'))
+            client_file.write(client)
             client_file.seek(0)
             key_file = tempfile.NamedTemporaryFile(delete=False)
-            key_file.write(bytes(ckey,'utf-8'))
+            key_file.write(ckey)
             key_file.seek(0)
             CERT = (client_file.name, key_file.name)
         except:
