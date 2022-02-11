@@ -6,7 +6,7 @@
         get_docker_status(DOCKER_CONTAINER);
     })();
 </script>
-{{ challenge.description }}
+{{ challenge.html }}
 <div class='mb-3 text-center' id='docker_container'>
     <span>
         <a onclick="start_container('{{ challenge.docker_image | safe }}');" class='btn btn-dark'>
