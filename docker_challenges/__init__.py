@@ -118,9 +118,21 @@ def define_docker_admin(app):
             except:
                 print(traceback.print_exc())
                 client_key = ''
-            if len(ca_cert) != 0: b.ca_cert = ca_cert
-            if len(client_cert) != 0: b.client_cert = client_cert
-            if len(client_key) != 0: b.client_key = client_key
+            if len(ca_cert) != 0: 
+                tmpca = tempfile.NamedTemporaryFile(mode="wb",dir="/tmp", delete=False)
+                tmpca.write(ca_cert)
+                tmpca.seek(0)
+                b.ca_cert = tmpca.name
+            if len(client_cert) != 0:
+                tmpcert = tempfile.NamedTemporaryFile(mode="wb",dir="/tmp", delete=False)
+                tmpcert.write(client_cert)
+                tmpcert.seek(0)
+                b.client_cert = tmpcert.name
+            if len(client_key) != 0: 
+                tmpkey = tempfile.NamedTemporaryFile(mode="wb",dir="/tmp", delete=False)
+                tmpkey.write(client_key)
+                tmpkey.seek(0)
+                b.client_key = tmpkey.name
             b.hostname = request.form['hostname']
             b.tls_enabled = request.form['tls_enabled']
             if b.tls_enabled == "True":
@@ -218,9 +230,9 @@ def do_request(docker, url, headers=None, method='GET'):
     try:
         if tls:
             if (method == 'GET'):
-                r = requests.get(url=f"%s{url}" % URL_TEMPLATE, cert=get_client_cert(docker), verify=False, headers=headers)
+                r = requests.get(url=f"%s{url}" % URL_TEMPLATE, cert=(docker.client_cert, docker.client_key), verify=False, headers=headers)
             elif (method == 'DELETE'):
-                r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, cert=get_client_cert(docker), verify=False, headers=headers)
+                r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, cert=(docker.client_cert, docker.client_key), verify=False, headers=headers)
         else:
             if (method == 'GET'):
                 r = requests.get(url=f"%s{url}" % URL_TEMPLATE, headers=headers)
@@ -230,28 +242,6 @@ def do_request(docker, url, headers=None, method='GET'):
         print(traceback.print_exc())
         r = []
     return r
-
-
-def get_client_cert(docker):
-    try:
-        ca = docker.ca_cert
-        client = docker.client_cert
-        ckey = docker.client_key
-        ca_file = tempfile.NamedTemporaryFile(delete=False)
-        ca_file.write(ca)
-        ca_file.seek(0)
-        client_file = tempfile.NamedTemporaryFile(delete=False)
-        client_file.write(client)
-        client_file.seek(0)
-        key_file = tempfile.NamedTemporaryFile(delete=False)
-        key_file.write(ckey)
-        key_file.seek(0)
-        CERT = (client_file.name, key_file.name)
-    except:
-        print(traceback.print_exc())
-        CERT = None
-    return CERT
-
 
 # For the Docker Config Page. Gets the Current Repositories available on the Docker Server.
 def get_repositories(docker, tags=False, repos=False):
@@ -293,23 +283,6 @@ def create_container(docker, image, team, portbl):
         prefix = 'http'
     else:
         prefix = 'https'
-        try:
-            ca = docker.ca_cert
-            client = docker.client_cert
-            ckey = docker.client_key
-            ca_file = tempfile.NamedTemporaryFile(delete=False)
-            ca_file.write(ca)
-            ca_file.seek(0)
-            client_file = tempfile.NamedTemporaryFile(delete=False)
-            client_file.write(client)
-            client_file.seek(0)
-            key_file = tempfile.NamedTemporaryFile(delete=False)
-            key_file.write(ckey)
-            key_file.seek(0)
-            CERT = (client_file.name, key_file.name)
-        except:
-            print(traceback.print_exc())
-            return []
     host = docker.hostname
     URL_TEMPLATE = '%s://%s' % (prefix, host)
     needed_ports = get_required_ports(docker, image)
@@ -331,10 +304,10 @@ def create_container(docker, image, team, portbl):
     headers = {'Content-Type': "application/json"}
     data = json.dumps({"Image": image, "ExposedPorts": ports, "HostConfig": {"PortBindings": bindings}})
     if tls:
-        r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=CERT,
+        r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=(docker.client_cert, docker.client_key),
                       verify=False, data=data, headers=headers)
         result = r.json()
-        s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=CERT, verify=False,
+        s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=(docker.client_cert, docker.client_key), verify=False,
                           headers=headers)
     else:
         r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name),
