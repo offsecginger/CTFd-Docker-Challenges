@@ -355,7 +355,7 @@ def get_required_ports(docker, image):
     return result
 
 
-def create_container(docker, image, team, portbl):
+def create_container(docker, image, portbl, challenge_id, flag):
     tls = docker.tls_enabled
     CERT = None
     if not tls:
@@ -382,11 +382,16 @@ def create_container(docker, image, team, portbl):
     host = docker.hostname
     URL_TEMPLATE = "%s://%s" % (prefix, host)
     needed_ports = get_required_ports(docker, image)
-    team = hashlib.md5(team.encode("utf-8")).hexdigest()[:10]
-    container_name = "%s_%s" % (
-        image.split(":")[1],
-        team if is_teams_mode() else get_current_user().name,
-    )
+
+    if is_teams_mode():
+        session = get_current_team()
+    else:
+        session = get_current_user()
+
+    owner = session.name
+
+    owner = hashlib.md5(owner.encode("utf-8")).hexdigest()[:10]
+    container_name = "%s_%s" % (image.split(":")[1], owner)
     assigned_ports = dict()
     for i in needed_ports:
         while True:
@@ -400,12 +405,25 @@ def create_container(docker, image, team, portbl):
     for i in needed_ports:
         ports[i] = {}
         bindings[i] = [{"HostPort": tmp_ports.pop()}]
+
+    # Get the flags on the challenge
+    flags = Flags.query.filter_by(challenge_id=challenge_id).all()
+
+    for flag in flags:
+        if flag.type == "static":
+            flag.content = flag.content.replace("{flag}", "{" + flag + "}")
+
+    environment_variables = [
+        f"FLAG_{idx}={flag.content}" for idx, flag in enumerate(flags)
+    ]
+
     headers = {"Content-Type": "application/json"}
     data = json.dumps(
         {
             "Image": image,
             "ExposedPorts": ports,
             "HostConfig": {"PortBindings": bindings},
+            "Env": str(environment_variables),
         }
     )
     if tls:
@@ -570,25 +588,35 @@ class DockerChallengeType(BaseChallenge):
 
         # Get the flag from the challenge the user is attempting
         if is_teams_mode():
-            challenge = DockerChallengeTracker.query.filter_by(
+            challengetracker = DockerChallengeTracker.query.filter_by(
                 challenge_id=challenge.id, owner_id=get_current_team().id
             ).first()
         else:
             print(get_current_user().__dict__)
-            challenge = DockerChallengeTracker.query.filter_by(
+            challengetracker = DockerChallengeTracker.query.filter_by(
                 challenge_id=challenge.id, owner_id=get_current_user().id
             ).first()
 
-        if challenge is None:
+        if challengetracker is None:
             return False, "Failed to find challenge container!"
 
-        print(challenge.flag)
+        print(challengetracker.flag)
 
+        data = request.form or request.get_json()
         submission = data["submission"].strip()
-        if submission == challenge.flag:
-            return True, "Correct"
-        else:
-            return False, "Incorrect"
+        flags = Flags.query.filter_by(challenge_id=challenge.id).all()
+        for flag in flags:
+            # if get_flag_class(flag.type).compare(flag, submission):
+            #    return True, "Correct"
+            if flag.type == "static":
+                print(flag.content)
+                flag.content = flag.content.replace(
+                    "{flag}", "{" + challengetracker.flag + "}"
+                )
+
+            if get_flag_class(flag.type).compare(flag, submission):
+                return True, "Correct"
+        return False, "Incorrect"
 
     @staticmethod
     def solve(user, team, challenge, request):
@@ -728,9 +756,11 @@ class ContainerAPI(Resource):
                 ).delete()
             db.session.commit()
         portsbl = get_unavailable_ports(docker)
-        create = create_container(docker, challenge.docker_image, session.name, portsbl)
-        ports = json.loads(create[1])["HostConfig"]["PortBindings"].values()
         flag = "".join(random.choices(string.ascii_uppercase + string.digits, k=128))
+        create = create_container(
+            docker, challenge.docker_image, portsbl, challenge_id, flag
+        )
+        ports = json.loads(create[1])["HostConfig"]["PortBindings"].values()
         entry = DockerChallengeTracker(
             owner_id=session.id,
             challenge_id=challenge.id,

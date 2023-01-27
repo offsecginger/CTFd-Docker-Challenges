@@ -4,7 +4,7 @@ services:
   ctfd:
     build: .
     user: root
-    restart: always
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -27,7 +27,7 @@ services:
 
   db:
     image: mariadb:10.4.12
-    restart: always
+    restart: unless-stopped
     environment:
       - MYSQL_ROOT_PASSWORD=ctfd
       - MYSQL_USER=ctfd
@@ -42,11 +42,32 @@ services:
 
   cache:
     image: redis:4
-    restart: always
+    restart: unless-stopped
     volumes:
     - .data/redis:/data
     networks:
         internal:
+  
+  guacd:
+    image: guacamole/guacd
+    restart: unless-stopped
+    networks:
+      internal:
+    
+  guacamole:
+    image: guacamole/guacamole
+    restart: unless-stopped
+    networks:
+      default:
+      internal:
+    ports:
+      - 3000:8080
+    environment:
+      - MYSQL_HOSTNAME=db
+      - MYSQL_DATABASE=guac
+      - MYSQL_USER=ctfd
+      - MYSQL_PASSWORD=ctfd
+      - GUACD_HOSTNAME=guacd
 
 networks:
     default:
