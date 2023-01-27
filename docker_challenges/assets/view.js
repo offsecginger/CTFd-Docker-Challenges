@@ -3,18 +3,18 @@ CTFd._internal.challenge.data = undefined
 CTFd._internal.challenge.renderer = CTFd.lib.markdown();
 
 
-CTFd._internal.challenge.preRender = function() {}
+CTFd._internal.challenge.preRender = function () { }
 
-CTFd._internal.challenge.render = function(markdown) {
+CTFd._internal.challenge.render = function (markdown) {
 
     return CTFd._internal.challenge.renderer.render(markdown)
 }
 
 
-CTFd._internal.challenge.postRender = function() {}
+CTFd._internal.challenge.postRender = function () { }
 
 
-CTFd._internal.challenge.submit = function(preview) {
+CTFd._internal.challenge.submit = function (preview) {
     var challenge_id = parseInt(CTFd.lib.$('#challenge-id').val())
     var submission = CTFd.lib.$('#challenge-input').val()
 
@@ -27,7 +27,7 @@ CTFd._internal.challenge.submit = function(preview) {
         params['preview'] = true
     }
 
-    return CTFd.api.post_challenge_attempt(params, body).then(function(response) {
+    return CTFd.api.post_challenge_attempt(params, body).then(function (response) {
         if (response.status === 429) {
             // User was ratelimited but process response
             return response
@@ -40,19 +40,19 @@ CTFd._internal.challenge.submit = function(preview) {
     })
 };
 
-function get_docker_status(container) {
-    $.get("/api/v1/docker_status", function(result) {
-        $.each(result['data'], function(i, item) {
-            if (item.docker_image == container) {
+function get_docker_status(challenge) {
+    $.get("/api/v1/docker_status", function (result) {
+        $.each(result['data'], function (i, item) {
+            if (item.challenge_id == challenge) {
                 var ports = String(item.ports).split(',');
                 var data = '';
-                $.each(ports, function(x, port) {
+                $.each(ports, function (x, port) {
                     port = String(port)
                     data = data + 'Host: ' + item.host + ' Port: ' + port + '<br />';
                 })
-                $('#docker_container').html('<pre>Docker Container Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).substring(0,10) + '_revert_container"></div>');
+                $('#docker_container').html('<pre>Docker Container Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).substring(0, 10) + '_revert_container"></div>');
                 var countDownDate = new Date(parseInt(item.revert_time) * 1000).getTime();
-                var x = setInterval(function() {
+                var x = setInterval(function () {
                     var now = new Date().getTime();
                     var distance = countDownDate - now;
                     var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
@@ -60,10 +60,10 @@ function get_docker_status(container) {
                     if (seconds < 10) {
                         seconds = "0" + seconds
                     }
-                    $("#" + String(item.instance_id).substring(0,10) + "_revert_container").html('Next Revert Available in ' + minutes + ':' + seconds);
+                    $("#" + String(item.instance_id).substring(0, 10) + "_revert_container").html('Next Revert Available in ' + minutes + ':' + seconds);
                     if (distance < 0) {
                         clearInterval(x);
-                        $("#" + String(item.instance_id).substring(0,10) + "_revert_container").html('<a onclick="start_container(\'' + item.docker_image + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>');
+                        $("#" + String(item.instance_id).substring(0, 10) + "_revert_container").html('<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>');
                     }
                 }, 1000);
                 return false;
@@ -72,18 +72,18 @@ function get_docker_status(container) {
     });
 };
 
-function start_container(container) {
+function start_container(challenge) {
     $('#docker_container').html('<div class="text-center"><i class="fas fa-circle-notch fa-spin fa-1x"></i></div>');
-    $.get("/api/v1/container", { 'name': container }, function(result) {
-            get_docker_status(container);
+    $.get("/api/v1/container", { 'id': challenge }, function (result) {
+        get_docker_status(challenge);
         })
-        .fail(function(jqxhr, settings, ex) {
+        .fail(function (jqxhr, settings, ex) {
             ezal({
                 title: "Attention!",
                 body: "You can only revert a container once per 5 minutes! Please be patient.",
                 button: "Got it!"
             });
-            $(get_docker_status(container));
+            $(get_docker_status(challenge));
         });
 }
 
@@ -117,7 +117,7 @@ function ezal(args) {
 
     obj.modal("show");
 
-    $(obj).on("hidden.bs.modal", function(e) {
+    $(obj).on("hidden.bs.modal", function (e) {
         $(this).modal("dispose");
     });
 
