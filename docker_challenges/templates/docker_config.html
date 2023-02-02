@@ -2,7 +2,7 @@
 {% block content %}
 <div class="jumbotron">
     <div class="container">
-        <h1>Docker Config</h1>
+        <h1>AWS Config</h1>
     </div>
 </div>
 <div class="container">
@@ -12,62 +12,91 @@
             <div class="alert alert-danger alert-dismissable" role="alert">
                 <span class="sr-only">Error:</span>
                 {{ error }}
-                <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">×</span></button>
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span
+                        aria-hidden="true">×</span></button>
             </div>
             {% endfor %}
-            <form method="post" accept-charset="utf-8" autocomplete="off" role="form" name='docker_config' class="form-horizontal" enctype="multipart/form-data">
+            <form method="post" accept-charset="utf-8" autocomplete="off" role="form" name='docker_config'
+                class="form-horizontal" enctype="multipart/form-data">
                 <div class="form-group">
-                    <label for="hostname-input">
-                        Hostname
+                    <label for="aws-access-key-id-input">
+                        AWS Access Key ID
                     </label>
-                    {% if config.hostname %}
-                    <input class="form-control" type="text" name="hostname" id="hostname-input" placeholder="Ex: 10.10.10.10:2376" value='{{ config.hostname }}'/>
+                    {% if config.aws_access_key_id %}
+                    <input class="form-control" type="text" name="aws_access_key_id" id="aws_access_key_id-input"
+                        placeholder="Ex: AKI1234567890ABCDEFG" value='{{ config.aws_access_key_id }}' />
                     {% else %}
-                    <input class="form-control" type="text" name="hostname" id="hostname-input" placeholder="Ex: 10.10.10.10:2376" />
+                    <input class="form-control" type="text" name="aws_access_key_id" id="aws_access_key_id-input"
+                        placeholder="Ex: AKI1234567890ABCDEFG" />
                     {% endif %}
                 </div>
+
                 <div class="form-group">
-                    <p>TLS Enabled?</p>
-                    <input type="radio" name="tls_enabled" id="tls-radiobox-no" value="False" onclick="enable_file_form(!this.checked)" {% if not config.tls_enabled %}checked{% endif %} />
-                    <label for="tls-radiobox-no">No</label>
-                    <input type="radio" name="tls_enabled" id="tls-radiobox-yes" value="True" onclick="enable_file_form(this.checked)"{% if config.tls_enabled %}checked{% endif %} />
-                    <label for="tls-radiobox-yes">Yes</label>
-                </div>
-                <div class="form-group">
-                    <label for="ca-file">
-                        CA Cert {% if config.ca_cert %} (Uploaded. Adding a new file will overwrite.) {% endif %}
+                    <label for="aws-secret-access-key-input">
+                        AWS Secret Access Key
                     </label>
-                    <input class="form-control" type="file" name="ca_cert" id="ca_file" {% if not config.tls_enabled %} disabled {% endif %} {% if config.tls_enabled and not config.ca_cert %} required {% endif %} />
+                    {% if config.aws_secret_access_key %}
+                    <input class="form-control" type="text" name="aws_secret_access_key"
+                        id="aws_secret_access_key_input-input"
+                        placeholder="Ex: 87428fc522803d31065e7bce3cf03fe475096631"
+                        value='{{ config.aws_secret_access_key }}' />
+                    {% else %}
+                    <input class="form-control" type="text" name="aws_secret_access_key"
+                        id="aws_secret_access_key_input" placeholder="Ex: 87428fc522803d31065e7bce3cf03fe475096631" />
+                    {% endif %}
                 </div>
+
                 <div class="form-group">
-                    <label for="client-file">
-                        Client Cert {% if config.client_cert %} (Uploaded. Adding a new file will overwrite.) {% endif %}
+                    <label for="cluster-input">
+                        ECS Cluster
                     </label>
-                    <input class="form-control" type="file" name="client_cert" id="client_file" {% if not config.tls_enabled %} disabled {% endif %} {% if config.tls_enabled and not config.client_cert %} required {% endif %} />
+                    {% if config.cluster %}
+                    <input class="form-control" type="text" name="cluster" id="cluster_input-input"
+                        placeholder="Ex: my-cluster" value='{{ config.cluster }}' />
+                    {% else %}
+                    <input class="form-control" type="text" name="cluster" id="cluster_input"
+                        placeholder="Ex: my-cluster" />
+                    {% endif %}
                 </div>
+
                 <div class="form-group">
-                    <label for="key-file">
-                        Client Key {% if config.client_key %} (Uploaded. Adding a new file will overwrite.) {% endif %}
+                    <label for="repo-ms">
+                        VPC
                     </label>
-                    <input class="form-control" type="file" name="client_key" id="key_file" {% if not config.tls_enabled %} disabled {% endif %} {% if config.tls_enabled and not config.client_key %} required {% endif %} />
+                    <select id='vpcs' name="active_vpc" class='form-control' size='10'>
+                        {% if form.vpcs.choices[0][0] == "ERROR" %}
+                        <option value='False' disabled>{{ form.vpcs.choices[0][1] }}</option>
+                        {% elif form.vpcs %}
+                        {% for key,value in form.vpcs.choices %}
+                        {% if key == active_vpc %}
+                        <option value='{{ key }}' selected>{{ value }}</option>
+                        {% else %}
+                        <option value='{{ key }}'>{{ value }}</option>
+                        {% endif %}
+                        {% endfor %}
+                        {% else %}
+                        <option value='False' disabled>Connect to AWS first</option>
+                        {% endif %}
+                    </select>
                 </div>
+
                 <div class="form-group">
                     <label for="repo-ms">
                         Repositories
                     </label>
                     <select id='repositories' name="repositories" class='form-control' size='10' multiple>
                         {% if form.repositories.choices[0][0] == "ERROR" %}
-                            <option value='False' disabled>{{ form.repositories.choices[0][1] }}</option>
+                        <option value='False' disabled>{{ form.repositories.choices[0][1] }}</option>
                         {% elif form.repositories %}
-                            {% for key,value in form.repositories.choices %}
-                                {% if key in repos %}
-                                <option value='{{ key }}' selected>{{ value }}</option>
-                                {% else %}
-                                <option value='{{ key }}'>{{ value }}</option>
-                                {% endif %}
-                            {% endfor %}
+                        {% for key,value in form.repositories.choices %}
+                        {% if key in repos %}
+                        <option value='{{ key }}' selected>{{ value }}</option>
                         {% else %}
-                            <option value='False' disabled>Connect Docker API First</option>
+                        <option value='{{ key }}'>{{ value }}</option>
+                        {% endif %}
+                        {% endfor %}
+                        {% else %}
+                        <option value='False' disabled>Connect to AWS first</option>
                         {% endif %}
                     </select>
                 </div>
@@ -84,17 +113,4 @@
 </div>
 {% endblock content %}
 {% block scripts %}
-<script>
-
-function enable_file_form(status) {
-    status=!status; 
-    document.docker_config.ca_file.disabled = status;
-    document.docker_config.client_file.disabled = status;
-    document.docker_config.key_file.disabled = status;
-    document.docker_config.ca_file.required = !status;
-    document.docker_config.client_file.required = !status;
-    document.docker_config.key_file.required = !status;
-}
-
-</script>
 {% endblock scripts %}

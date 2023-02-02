@@ -48,7 +48,7 @@ function get_docker_status(challenge) {
                 var data = '';
                 $.each(ports, function (x, port) {
                     port = String(port)
-                    data = data + 'Host: ' + item.host + ' Port: ' + port + '<br />';
+                    //data = data + 'Host: ' + item.host + ' Port: ' + port + '<br />';
                 })
                 $('#docker_container').html('<pre>Docker Container Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).substring(0, 10) + '_revert_container"></div>');
                 var countDownDate = new Date(parseInt(item.revert_time) * 1000).getTime();
@@ -76,7 +76,7 @@ function start_container(challenge) {
     $('#docker_container').html('<div class="text-center"><i class="fas fa-circle-notch fa-spin fa-1x"></i></div>');
     $.get("/api/v1/container", { 'id': challenge }, function (result) {
         get_docker_status(challenge);
-        })
+    })
         .fail(function (jqxhr, settings, ex) {
             ezal({
                 title: "Attention!",

@@ -9,18 +9,27 @@ CTFd.plugin.run((_CTFd) => {
             );
         }
     });
-    $(document).ready(function(){
-    $('[data-toggle="tooltip"]').tooltip();
-    $.getJSON("/api/v1/docker", function(result){
-        $.each(result['data'], function(i, item){
-            if (item.name == 'Error in Docker Config!') { 
-                document.docker_form.dockerimage_select.disabled = true;
-                $("label[for='DockerImage']").text('Docker Image ' + item.name)
-            }
-            else {
-                $("#dockerimage_select").append($("<option />").val(item.name).text(item.name));
-            }
+    $(document).ready(function () {
+        $('[data-toggle="tooltip"]').tooltip();
+        $.getJSON("/api/v1/docker", function (result) {
+            $.each(result['data'], function (i, item) {
+                if (item.name == 'Error in Docker Config!') {
+                    document.docker_form.dockerimage_select.disabled = true;
+                    $("label[for='DockerImage']").text('Docker Image ' + item.name)
+                }
+                else {
+                    $("#dockerimage_select").append($("<option />").val(item.name).text(item.name));
+                }
+            });
+        });
+
+        $.getJSON("/api/v1/docker_config", function (result) {
+            $.each(result['data']['subnets'], function (i, item) {
+                $("#subnet_select").append($("<option />").val(item).text(item));
+            });
+            $.each(result['data']['security_groups'], function (i, item) {
+                $("#security_group_select").append($("<option />").val(item).text(item));
+            });
         });
     });
-});
 });

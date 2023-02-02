@@ -1,6 +1,7 @@
 import traceback
 import random
 import string
+import boto3
 
 from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES, get_chal_class
 from CTFd.plugins.flags import get_flag_class
@@ -88,12 +89,18 @@ class DockerConfig(db.Model):
     """
 
     id = db.Column(db.Integer, primary_key=True)
-    hostname = db.Column("hostname", db.String(64), index=True)
-    tls_enabled = db.Column("tls_enabled", db.Boolean, default=False, index=True)
-    ca_cert = db.Column("ca_cert", db.String(2200), index=True)
-    client_cert = db.Column("client_cert", db.String(2000), index=True)
-    client_key = db.Column("client_key", db.String(3300), index=True)
-    repositories = db.Column("repositories", db.String(1024), index=True)
+    repositories = db.Column("repositories", db.String(1024))
+
+    active_vpc = db.Column("active_vpc", db.String(64), index=True)
+
+    aws_access_key_id = db.Column("aws_access_key_id", db.String(20))
+    aws_secret_access_key = db.Column("aws_secret_access_key", db.String(40))
+    cluster = db.Column("cluster", db.String(128))
+
+    subnets = db.Column("subnets", db.String(1024))
+    security_groups = db.Column("security_groups", db.String(1024))
+
+    region = db.Column("region", db.String(32))
 
 
 class DockerChallengeTracker(db.Model):
@@ -115,14 +122,18 @@ class DockerChallengeTracker(db.Model):
 
 class DockerConfigForm(BaseForm):
     id = HiddenField()
-    hostname = StringField(
-        "Docker Hostname", description="The Hostname/IP and Port of your Docker Server"
+    aws_access_key_id = StringField(
+        "AWS Access Key ID", description="The Access Key ID for your AWS account"
     )
-    tls_enabled = RadioField("TLS Enabled?")
-    ca_cert = FileField("CA Cert")
-    client_cert = FileField("Client Cert")
-    client_key = FileField("Client Key")
+    aws_secret_access_key = StringField(
+        "AWS Secret Access Key",
+        description="The Secret Access Key for your AWS account",
+    )
+    cluster = StringField(
+        "Cluster", description="The ECS Cluster to run the challenges within"
+    )
     repositories = SelectMultipleField("Repositories")
+    vpcs = SelectMultipleField("VPC")
     submit = SubmitField("Submit")
 
 
@@ -139,42 +150,15 @@ def define_docker_admin(app):
     def docker_config():
         docker = DockerConfig.query.filter_by(id=1).first()
         form = DockerConfigForm()
+
         if request.method == "POST":
             if docker:
                 b = docker
             else:
                 b = DockerConfig()
-            try:
-                ca_cert = request.files["ca_cert"].stream.read()
-            except:
-                print(traceback.print_exc())
-                ca_cert = ""
-            try:
-                client_cert = request.files["client_cert"].stream.read()
-            except:
-                print(traceback.print_exc())
-                client_cert = ""
-            try:
-                client_key = request.files["client_key"].stream.read()
-            except:
-                print(traceback.print_exc())
-                client_key = ""
-            if len(ca_cert) != 0:
-                b.ca_cert = ca_cert
-            if len(client_cert) != 0:
-                b.client_cert = client_cert
-            if len(client_key) != 0:
-                b.client_key = client_key
-            b.hostname = request.form["hostname"]
-            b.tls_enabled = request.form["tls_enabled"]
-            if b.tls_enabled == "True":
-                b.tls_enabled = True
-            else:
-                b.tls_enabled = False
-            if not b.tls_enabled:
-                b.ca_cert = None
-                b.client_cert = None
-                b.client_key = None
+            b.aws_access_key_id = request.form["aws_access_key_id"]
+            b.aws_secret_access_key = request.form["aws_secret_access_key"]
+            b.cluster = request.form["cluster"]
             try:
                 b.repositories = ",".join(
                     request.form.to_dict(flat=False)["repositories"]
@@ -182,29 +166,62 @@ def define_docker_admin(app):
             except:
                 print(traceback.print_exc())
                 b.repositories = None
+            try:
+                b.active_vpc = request.form.to_dict(flat=False)["active_vpc"][0]
+            except:
+                print(traceback.print_exc())
+                b.active_vpc = None
+
+            # Fetch the subnets and security groups associated with this VPC
+
+            if b.active_vpc is not None:
+                b.subnets = ",".join(get_subnets(b, b.active_vpc))
+                b.security_groups = ",".join(get_security_groups(b, b.active_vpc))
+
             db.session.add(b)
             db.session.commit()
             docker = DockerConfig.query.filter_by(id=1).first()
+
         try:
             repos = get_repositories(docker)
         except:
             print(traceback.print_exc())
             repos = list()
         if len(repos) == 0:
-            form.repositories.choices = [("ERROR", "Failed to Connect to Docker")]
+            form.repositories.choices = [("ERROR", "Failed to connect to AWS")]
         else:
             form.repositories.choices = [(d, d) for d in repos]
+
+        try:
+            vpcs = get_vpcs(docker)
+        except:
+            print(traceback.print_exc())
+            vpcs = list()
+        if len(vpcs) == 0:
+            form.vpcs.choices = [("ERROR", "Failed to connect to AWS")]
+        else:
+            form.vpcs.choices = [(d, d) for d in vpcs]
+
         dconfig = DockerConfig.query.first()
         try:
             selected_repos = dconfig.repositories
             if selected_repos == None:
                 selected_repos = list()
-        # selected_repos = dconfig.repositories.split(',')
         except:
             print(traceback.print_exc())
             selected_repos = []
+
+        try:
+            active_vpc = docker.active_vpc
+        except:
+            active_vpc = None
+
         return render_template(
-            "docker_config.html", config=dconfig, form=form, repos=selected_repos
+            "docker_config.html",
+            config=dconfig,
+            form=form,
+            repos=selected_repos,
+            active_vpc=active_vpc,
         )
 
     app.register_blueprint(admin_docker_config)
@@ -248,7 +265,7 @@ class KillContainerAPI(Resource):
         docker_tracker = DockerChallengeTracker.query.all()
         if full == "true":
             for c in docker_tracker:
-                delete_container(docker_config, c.instance_id)
+                # delete_container(docker_config, c.instance_id)
                 DockerChallengeTracker.query.filter_by(
                     instance_id=c.instance_id
                 ).delete()
@@ -257,7 +274,7 @@ class KillContainerAPI(Resource):
         elif container != "null" and container in [
             c.instance_id for c in docker_tracker
         ]:
-            delete_container(docker_config, container)
+            # delete_container(docker_config, container)
             DockerChallengeTracker.query.filter_by(instance_id=container).delete()
             db.session.commit()
 
@@ -266,122 +283,65 @@ class KillContainerAPI(Resource):
         return True
 
 
-def do_request(docker, url, headers=None, method="GET"):
-    tls = docker.tls_enabled
-    prefix = "https" if tls else "http"
-    host = docker.hostname
-    URL_TEMPLATE = "%s://%s" % (prefix, host)
-    try:
-        if tls:
-            if method == "GET":
-                r = requests.get(
-                    url=f"%s{url}" % URL_TEMPLATE,
-                    cert=get_client_cert(docker),
-                    verify=False,
-                    headers=headers,
-                )
-            elif method == "DELETE":
-                r = requests.delete(
-                    url=f"%s{url}" % URL_TEMPLATE,
-                    cert=get_client_cert(docker),
-                    verify=False,
-                    headers=headers,
-                )
-        else:
-            if method == "GET":
-                r = requests.get(url=f"%s{url}" % URL_TEMPLATE, headers=headers)
-            elif method == "DELETE":
-                r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, headers=headers)
-    except:
-        print(traceback.print_exc())
-        r = []
-    return r
-
-
-def get_client_cert(docker):
-    try:
-        ca = docker.ca_cert
-        client = docker.client_cert
-        ckey = docker.client_key
-        ca_file = tempfile.NamedTemporaryFile(delete=False)
-        ca_file.write(ca)
-        ca_file.seek(0)
-        client_file = tempfile.NamedTemporaryFile(delete=False)
-        client_file.write(client)
-        client_file.seek(0)
-        key_file = tempfile.NamedTemporaryFile(delete=False)
-        key_file.write(ckey)
-        key_file.seek(0)
-        CERT = (client_file.name, key_file.name)
-    except:
-        print(traceback.print_exc())
-        CERT = None
-    return CERT
-
-
 # For the Docker Config Page. Gets the Current Repositories available on the Docker Server.
-def get_repositories(docker, tags=False, repos=False):
-    r = do_request(docker, "/images/json?all=1")
-    result = list()
-    for i in r.json():
-        if not i["RepoTags"] == None:
-            if not i["RepoTags"][0].split(":")[0] == "<none>":
-                if repos:
-                    if not i["RepoTags"][0].split(":")[0] in repos:
-                        continue
-                if not tags:
-                    result.append(i["RepoTags"][0].split(":")[0])
-                else:
-                    result.append(i["RepoTags"][0])
-    return list(set(result))
+def get_repositories(docker):
+    ecs = boto3.client(
+        "ecs",
+        "eu-west-2",
+        aws_access_key_id=docker.aws_access_key_id,
+        aws_secret_access_key=docker.aws_secret_access_key,
+    )
+
+    taskDefs = ecs.list_task_definitions()
+
+    print(taskDefs)
+
+    return taskDefs["taskDefinitionArns"]
 
 
-def get_unavailable_ports(docker):
-    r = do_request(docker, "/containers/json?all=1")
-    result = list()
-    for i in r.json():
-        if not i["Ports"] == []:
-            for p in i["Ports"]:
-                try:
-                    result.append(p["PublicPort"])
-                except:
-                    pass
-    return result
+def get_vpcs(docker):
+    ec2 = boto3.client(
+        "ec2",
+        "eu-west-2",
+        aws_access_key_id=docker.aws_access_key_id,
+        aws_secret_access_key=docker.aws_secret_access_key,
+    )
+
+    vpc_descr = ec2.describe_vpcs()
+    print(vpc_descr)
+
+    vpcs = [vpc["VpcId"] for vpc in vpc_descr["Vpcs"]]
+
+    return vpcs
 
 
-def get_required_ports(docker, image):
-    r = do_request(docker, f"/images/{image}/json?all=1")
-    result = r.json()["ContainerConfig"]["ExposedPorts"].keys()
-    return result
+def get_subnets(docker, vpc):
+    subnets = boto3.resource(
+        "ec2",
+        "eu-west-2",
+        aws_access_key_id=docker.aws_access_key_id,
+        aws_secret_access_key=docker.aws_secret_access_key,
+    ).subnets.filter(Filters=[{"Name": "vpc-id", "Values": [vpc]}])
+    return [sn.id for sn in subnets]
 
 
-def create_container(docker, image, portbl, challenge_id, flag):
-    tls = docker.tls_enabled
-    CERT = None
-    if not tls:
-        prefix = "http"
-    else:
-        prefix = "https"
-        try:
-            ca = docker.ca_cert
-            client = docker.client_cert
-            ckey = docker.client_key
-            ca_file = tempfile.NamedTemporaryFile(delete=False)
-            ca_file.write(ca)
-            ca_file.seek(0)
-            client_file = tempfile.NamedTemporaryFile(delete=False)
-            client_file.write(client)
-            client_file.seek(0)
-            key_file = tempfile.NamedTemporaryFile(delete=False)
-            key_file.write(ckey)
-            key_file.seek(0)
-            CERT = (client_file.name, key_file.name)
-        except:
-            print(traceback.print_exc())
-            return []
-    host = docker.hostname
-    URL_TEMPLATE = "%s://%s" % (prefix, host)
-    needed_ports = get_required_ports(docker, image)
+def get_security_groups(docker, vpc):
+    security_groups = boto3.resource(
+        "ec2",
+        "eu-west-2",
+        aws_access_key_id=docker.aws_access_key_id,
+        aws_secret_access_key=docker.aws_secret_access_key,
+    ).security_groups.filter(Filters=[{"Name": "vpc-id", "Values": [vpc]}])
+    return [sg.id for sg in security_groups]
+
+
+def create_container(docker, image, subnet, security_group, challenge_id, flag):
+    ecs = boto3.client(
+        "ecs",
+        region_name="eu-west-2",
+        aws_access_key_id=docker.aws_access_key_id,
+        aws_secret_access_key=docker.aws_secret_access_key,
+    )
 
     if is_teams_mode():
         session = get_current_team()
@@ -391,20 +351,8 @@ def create_container(docker, image, portbl, challenge_id, flag):
     owner = session.name
 
     owner = hashlib.md5(owner.encode("utf-8")).hexdigest()[:10]
-    container_name = "%s_%s" % (image.split(":")[1], owner)
-    assigned_ports = dict()
-    for i in needed_ports:
-        while True:
-            assigned_port = random.choice(range(30000, 60000))
-            if assigned_port not in portbl:
-                assigned_ports["%s/tcp" % assigned_port] = {}
-                break
-    ports = dict()
-    bindings = dict()
-    tmp_ports = list(assigned_ports.keys())
-    for i in needed_ports:
-        ports[i] = {}
-        bindings[i] = [{"HostPort": tmp_ports.pop()}]
+    container_name = "%s_%s" % (image.replace(":", "-").replace("/", "-"), owner)
+    print(container_name)
 
     # Get the flags on the challenge
     flags = Flags.query.filter_by(challenge_id=challenge_id).all()
@@ -417,55 +365,43 @@ def create_container(docker, image, portbl, challenge_id, flag):
         f"FLAG_{idx}={flag.content}" for idx, flag in enumerate(flags)
     ]
 
-    headers = {"Content-Type": "application/json"}
-    data = json.dumps(
-        {
-            "Image": image,
-            "ExposedPorts": ports,
-            "HostConfig": {"PortBindings": bindings},
-            "Env": str(environment_variables),
-        }
+    task = ecs.run_task(
+        cluster=docker.cluster,
+        taskDefinition=image,
+        launchType="FARGATE",
+        networkConfiguration={
+            "awsvpcConfiguration": {
+                "assignPublicIp": "DISABLED",
+                "subnets": [subnet],
+                "securityGroups": [security_group],
+            }
+        },
+        overrides={
+            "containerOverrides": [
+                {
+                    "name": "nginx",
+                    "environment": [
+                        {"name": f"FLAG_{idx}", "value": flag.content}
+                        for idx, flag in enumerate(flags)
+                    ],
+                }
+            ],
+        },
     )
-    if tls:
-        r = requests.post(
-            url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name),
-            cert=CERT,
-            verify=False,
-            data=data,
-            headers=headers,
-        )
-        result = r.json()
-        s = requests.post(
-            url="%s/containers/%s/start" % (URL_TEMPLATE, result["Id"]),
-            cert=CERT,
-            verify=False,
-            headers=headers,
-        )
-    else:
-        r = requests.post(
-            url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name),
-            data=data,
-            headers=headers,
-        )
-        print(r.request.method, r.request.url, r.request.body)
-        result = r.json()
-        print(result)
-        # name conflicts are not handled properly
-        s = requests.post(
-            url="%s/containers/%s/start" % (URL_TEMPLATE, result["Id"]), headers=headers
-        )
-    return result, data
+
+    print(task)
+    return task
 
 
-def delete_container(docker, instance_id):
-    headers = {"Content-Type": "application/json"}
-    do_request(
-        docker,
-        f"/containers/{instance_id}?force=true",
-        headers=headers,
-        method="DELETE",
-    )
-    return True
+# def delete_container(docker, instance_id):
+#    headers = {"Content-Type": "application/json"}
+#    do_request(
+#        docker,
+#        f"/containers/{instance_id}?force=true",
+#        headers=headers,
+#        method="DELETE",
+#    )
+#    return True
 
 
 class DockerChallengeType(BaseChallenge):
@@ -547,6 +483,8 @@ class DockerChallengeType(BaseChallenge):
             "state": challenge.state,
             "max_attempts": challenge.max_attempts,
             "type": challenge.type,
+            "subnet": challenge.subnet,
+            "security_group": challenge.security_group,
             "type_data": {
                 "id": DockerChallengeType.id,
                 "name": DockerChallengeType.name,
@@ -648,7 +586,7 @@ class DockerChallengeType(BaseChallenge):
                     .filter_by(owner_id=user.id)
                     .first()
                 )
-            delete_container(docker, docker_containers.instance_id)
+            # delete_container(docker, docker_containers.instance_id)
             DockerChallengeTracker.query.filter_by(
                 instance_id=docker_containers.instance_id
             ).delete()
@@ -694,6 +632,8 @@ class DockerChallenge(Challenges):
     __mapper_args__ = {"polymorphic_identity": "docker"}
     id = db.Column(None, db.ForeignKey("challenges.id"), primary_key=True)
     docker_image = db.Column(db.String(128), index=True)
+    subnet = db.Column(db.String(128), index=True)
+    security_group = db.Column(db.String(128), index=True)
 
 
 # API
@@ -713,7 +653,7 @@ class ContainerAPI(Resource):
             return abort(403)
         docker = DockerConfig.query.filter_by(id=1).first()
         containers = DockerChallengeTracker.query.all()
-        if challenge.docker_image not in get_repositories(docker, tags=True):
+        if challenge.docker_image not in get_repositories(docker):
             return abort(403)
         if is_teams_mode():
             session = get_current_team()
@@ -721,19 +661,19 @@ class ContainerAPI(Resource):
             session = get_current_user()
 
             # First we'll delete all old docker containers (+2 hours)
-            for i in containers:
-                if (
-                    int(session.id) == int(i.owner_id)
-                    and (unix_time(datetime.utcnow()) - int(i.timestamp)) >= 7200
-                ):
-                    delete_container(docker, i.instance_id)
-                    DockerChallengeTracker.query.filter_by(
-                        instance_id=i.instance_id
-                    ).delete()
-                    db.session.commit()
+            # for i in containers:
+            #    if (
+            #        int(session.id) == int(i.owner_id)
+            #        and (unix_time(datetime.utcnow()) - int(i.timestamp)) >= 7200
+            #    ):
+            #        # delete_container(docker, i.instance_id)
+            #        DockerChallengeTracker.query.filter_by(
+            #            instance_id=i.instance_id
+            #        ).delete()
+            #        db.session.commit()
         check = (
             DockerChallengeTracker.query.filter_by(owner_id=session.id)
-            .filter_by(docker_image=challenge.docker_image)
+            .filter_by(challenge_id=challenge.id)
             .first()
         )
 
@@ -744,38 +684,43 @@ class ContainerAPI(Resource):
         ):
             return abort(403)
         # The exception would be if we are reverting a box. So we'll delete it if it exists and has been around for more than 5 minutes.
-        elif check != None:
-            delete_container(docker, check.instance_id)
-            if is_teams_mode():
-                DockerChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
-                    docker_image=challenge.docker_image
-                ).delete()
-            else:
-                DockerChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
-                    docker_image=challenge.docker_image
-                ).delete()
-            db.session.commit()
-        portsbl = get_unavailable_ports(docker)
+        # elif check != None:
+        #    # delete_container(docker, check.instance_id)
+        #    if is_teams_mode():
+        #        DockerChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
+        #            challenge_id=challenge.id
+        #        ).delete()
+        #    else:
+        #        DockerChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
+        #            challenge_id=challenge.id
+        #        ).delete()
+        #    db.session.commit()
+        # portsbl = get_unavailable_ports(docker)
         flag = "".join(random.choices(string.ascii_uppercase + string.digits, k=128))
         create = create_container(
-            docker, challenge.docker_image, portsbl, challenge_id, flag
+            docker,
+            challenge.docker_image,
+            challenge.subnet,
+            challenge.security_group,
+            challenge_id,
+            flag,
         )
-        ports = json.loads(create[1])["HostConfig"]["PortBindings"].values()
+
         entry = DockerChallengeTracker(
             owner_id=session.id,
             challenge_id=challenge.id,
             docker_image=challenge.docker_image,
             timestamp=unix_time(datetime.utcnow()),
             revert_time=unix_time(datetime.utcnow()) + 300,
-            instance_id=create[0]["Id"],
-            ports=",".join([p[0]["HostPort"] for p in ports]),
-            host=str(docker.hostname).split(":")[0],
+            instance_id=create["tasks"][0]["taskArn"],
+            ports="",
             flag=flag,
         )
+
         print(flag)
         db.session.add(entry)
         db.session.commit()
-        # db.session.close()
+        db.session.close()
         return
 
 
@@ -811,7 +756,6 @@ class DockerStatus(Resource):
                     "revert_time": i.revert_time,
                     "instance_id": i.instance_id,
                     "ports": i.ports.split(","),
-                    "host": str(docker.hostname).split(":")[0],
                 }
             )
         return {"success": True, "data": data}
@@ -830,7 +774,7 @@ class DockerAPI(Resource):
     @admins_only
     def get(self):
         docker = DockerConfig.query.filter_by(id=1).first()
-        images = get_repositories(docker, tags=True, repos=docker.repositories)
+        images = get_repositories(docker)
         if images:
             data = list()
             for i in images:
@@ -843,6 +787,30 @@ class DockerAPI(Resource):
             }, 400
 
 
+docker_config_namespace = Namespace(
+    "docker_config",
+    description="Endpoint for admins to be able to retreive information about the configuration",
+)
+
+
+@docker_config_namespace.route("", methods=["GET"])
+class DockerConfigAPI(Resource):
+    @admins_only
+    def get(self):
+        docker = DockerConfig.query.filter_by(id=1).first()
+
+        if None not in [docker.subnets, docker.security_groups]:
+            subnets = docker.subnets.split(",")
+            security_groups = docker.security_groups.split(",")
+
+            return {
+                "success": True,
+                "data": {"subnets": subnets, "security_groups": security_groups},
+            }
+        else:
+            return {"success": False, "data": {}}
+
+
 def load(app):
     app.db.create_all()
     CHALLENGE_CLASSES["docker"] = DockerChallengeType
@@ -850,6 +818,7 @@ def load(app):
     define_docker_admin(app)
     define_docker_status(app)
     CTFd_API_v1.add_namespace(docker_namespace, "/docker")
+    CTFd_API_v1.add_namespace(docker_config_namespace, "/docker_config")
     CTFd_API_v1.add_namespace(container_namespace, "/container")
     CTFd_API_v1.add_namespace(active_docker_namespace, "/docker_status")
     CTFd_API_v1.add_namespace(kill_container, "/nuke")
