@@ -1,0 +1,10 @@
+[
+	{
+		"name": "ECS Config",
+		"route": "/admin/ecs_config"
+	},
+	{
+		"name": "ECS Status",
+		"route": "/admin/ecs_status"
+	}
+]

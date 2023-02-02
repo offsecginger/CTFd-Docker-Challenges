@@ -1,18 +1,20 @@
-{% extends "admin/challenges/update.html" %}
+{% extends "admin/challenges/create.html" %}
 {% block category %}
 <div class="form-group">
     <label>
-        Category<br>
-        <small class="form-text text-muted">Challenge Category</small>
+        Category:<br>
+        <small class="form-text text-muted">
+            The category of your challenge
+        </small>
     </label>
-    <input type="text" class="form-control chal-category" name="category" value="{{ challenge.category }}">
+    <input type="text" class="form-control" name="category" placeholder="Enter challenge category">
 </div>
 <div class="form-group">
-    <label for="DockerImage" id='dockerimage_label'>Docker Image:
+    <label for="TaskDefinition" id='taskdefinition_label'>Task Definition:
         <i class="far fa-question-circle text-muted cursor-help" data-toggle="tooltip" data-placement="right"
-            title="The docker image for your challenge"></i>
+            title="The ECS Task Definition for your challenge"></i>
     </label>
-    <select id="dockerimage_select" name="docker_image" class="form-control" required></select>
+    <select id="taskdefinition_select" name="task_definition" class="form-control" required></select>
     <label for="subnet" id="subnet_label">Subnet:</label>
     <!-- <input type="text" class="form-control" name="subnet" placeholder="Enter subnet" required> -->
     <select id="subnet_select" name="subnet" class="form-control" required></select>
@@ -21,8 +23,6 @@
     <!-- <input type="text" class="form-control" name="security_group" placeholder="Enter security group" required> -->
 </div>
 {% endblock %}
-{% block footer %}
-<script>
-    var DOCKER_IMAGE = '{{ challenge.docker_image }}';
-</script>
+{% block type %}
+<input type="hidden" name="type" value="ecs" id="chaltype">
 {% endblock %}

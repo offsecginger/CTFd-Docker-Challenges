@@ -83,9 +83,9 @@ from CTFd.forms.fields import SubmitField
 from CTFd.utils.config import get_themes
 
 
-class DockerConfig(db.Model):
+class ECSConfig(db.Model):
     """
-    Docker Config Model. This model stores the config for docker API connections.
+    ECS Config Model. This model stores the config for AWS connections and ECS cluster config.
     """
 
     id = db.Column(db.Integer, primary_key=True)
@@ -103,14 +103,14 @@ class DockerConfig(db.Model):
     region = db.Column("region", db.String(32))
 
 
-class DockerChallengeTracker(db.Model):
+class ECSChallengeTracker(db.Model):
     """
-    Docker Container Tracker. This model stores the users/teams active docker containers.
+    ECS Task Tracker. This model stores the users/teams active ECS tasks.
     """
 
     id = db.Column(db.Integer, primary_key=True)
     owner_id = db.Column("team_id", db.String(64), index=True)
-    docker_image = db.Column("docker_image", db.String(128), index=True)
+    task_definition = db.Column("task_definition", db.String(128), index=True)
     challenge_id = db.Column("challenge_id", db.Integer, index=True)
     timestamp = db.Column("timestamp", db.Integer, index=True)
     revert_time = db.Column("revert_time", db.Integer, index=True)
@@ -120,7 +120,7 @@ class DockerChallengeTracker(db.Model):
     flag = db.Column("flag", db.String(128), index=True)
 
 
-class DockerConfigForm(BaseForm):
+class ECSConfigForm(BaseForm):
     id = HiddenField()
     aws_access_key_id = StringField(
         "AWS Access Key ID", description="The Access Key ID for your AWS account"
@@ -137,25 +137,25 @@ class DockerConfigForm(BaseForm):
     submit = SubmitField("Submit")
 
 
-def define_docker_admin(app):
-    admin_docker_config = Blueprint(
-        "admin_docker_config",
+def define_ecs_admin(app):
+    admin_ecs_config = Blueprint(
+        "admin_ecs_config",
         __name__,
         template_folder="templates",
         static_folder="assets",
     )
 
-    @admin_docker_config.route("/admin/docker_config", methods=["GET", "POST"])
+    @admin_ecs_config.route("/admin/ecs_config", methods=["GET", "POST"])
     @admins_only
-    def docker_config():
-        docker = DockerConfig.query.filter_by(id=1).first()
-        form = DockerConfigForm()
+    def ecs_config():
+        ecs = ECSConfig.query.filter_by(id=1).first()
+        form = ECSConfigForm()
 
         if request.method == "POST":
-            if docker:
-                b = docker
+            if ecs:
+                b = ecs
             else:
-                b = DockerConfig()
+                b = ECSConfig()
             b.aws_access_key_id = request.form["aws_access_key_id"]
             b.aws_secret_access_key = request.form["aws_secret_access_key"]
             b.cluster = request.form["cluster"]
@@ -180,10 +180,10 @@ def define_docker_admin(app):
 
             db.session.add(b)
             db.session.commit()
-            docker = DockerConfig.query.filter_by(id=1).first()
+            ecs = ECSConfig.query.filter_by(id=1).first()
 
         try:
-            repos = get_repositories(docker)
+            repos = get_repositories(ecs)
         except:
             print(traceback.print_exc())
             repos = list()
@@ -193,7 +193,7 @@ def define_docker_admin(app):
             form.repositories.choices = [(d, d) for d in repos]
 
         try:
-            vpcs = get_vpcs(docker)
+            vpcs = get_vpcs(ecs)
         except:
             print(traceback.print_exc())
             vpcs = list()
@@ -202,7 +202,7 @@ def define_docker_admin(app):
         else:
             form.vpcs.choices = [(d, d) for d in vpcs]
 
-        dconfig = DockerConfig.query.first()
+        dconfig = ECSConfig.query.first()
         try:
             selected_repos = dconfig.repositories
             if selected_repos == None:
@@ -212,70 +212,66 @@ def define_docker_admin(app):
             selected_repos = []
 
         try:
-            active_vpc = docker.active_vpc
+            active_vpc = ecs.active_vpc
         except:
             active_vpc = None
 
         return render_template(
-            "docker_config.html",
+            "ecs_config.html",
             config=dconfig,
             form=form,
             repos=selected_repos,
             active_vpc=active_vpc,
         )
 
-    app.register_blueprint(admin_docker_config)
+    app.register_blueprint(admin_ecs_config)
 
 
-def define_docker_status(app):
-    admin_docker_status = Blueprint(
-        "admin_docker_status",
+def define_ecs_status(app):
+    admin_ecs_status = Blueprint(
+        "admin_ecs_status",
         __name__,
         template_folder="templates",
         static_folder="assets",
     )
 
-    @admin_docker_status.route("/admin/docker_status", methods=["GET", "POST"])
+    @admin_ecs_status.route("/admin/ecs_status", methods=["GET", "POST"])
     @admins_only
-    def docker_admin():
-        docker_config = DockerConfig.query.filter_by(id=1).first()
-        docker_tracker = DockerChallengeTracker.query.all()
-        for i in docker_tracker:
+    def ecs_admin():
+        ecs_config = ECSConfig.query.filter_by(id=1).first()
+        ecs_tracker = ECSChallengeTracker.query.all()
+        for i in ecs_tracker:
             if is_teams_mode():
                 name = Teams.query.filter_by(id=i.owner_id).first()
                 i.owner_id = name.name
             else:
                 name = Users.query.filter_by(id=i.owner_id).first()
                 i.owner_id = name.name
-        return render_template("admin_docker_status.html", dockers=docker_tracker)
+        return render_template("admin_ecs_status.html", ecs=ecs_tracker)
 
-    app.register_blueprint(admin_docker_status)
-
-
-kill_container = Namespace("nuke", description="Endpoint to nuke containers")
+    app.register_blueprint(admin_ecs_status)
 
 
-@kill_container.route("", methods=["POST", "GET"])
-class KillContainerAPI(Resource):
+kill_task = Namespace("nuke", description="Endpoint to nuke tasks")
+
+
+@kill_task.route("", methods=["POST", "GET"])
+class KillTaskAPI(Resource):
     @admins_only
     def get(self):
-        container = request.args.get("container")
+        task = request.args.get("task")
         full = request.args.get("all")
-        docker_config = DockerConfig.query.filter_by(id=1).first()
-        docker_tracker = DockerChallengeTracker.query.all()
+        ecs_config = ECSConfig.query.filter_by(id=1).first()
+        ecs_tracker = ECSChallengeTracker.query.all()
         if full == "true":
-            for c in docker_tracker:
-                # delete_container(docker_config, c.instance_id)
-                DockerChallengeTracker.query.filter_by(
-                    instance_id=c.instance_id
-                ).delete()
+            for c in ecs_tracker:
+                # delete_container(ecs_config, c.instance_id)
+                ECSChallengeTracker.query.filter_by(instance_id=c.instance_id).delete()
                 db.session.commit()
 
-        elif container != "null" and container in [
-            c.instance_id for c in docker_tracker
-        ]:
-            # delete_container(docker_config, container)
-            DockerChallengeTracker.query.filter_by(instance_id=container).delete()
+        elif task != "null" and task in [c.instance_id for c in ecs_tracker]:
+            # delete_container(ecs_config, container)
+            ECSChallengeTracker.query.filter_by(instance_id=task).delete()
             db.session.commit()
 
         else:
@@ -283,31 +279,31 @@ class KillContainerAPI(Resource):
         return True
 
 
-# For the Docker Config Page. Gets the Current Repositories available on the Docker Server.
-def get_repositories(docker):
-    ecs = boto3.client(
+# For the ECS Config Page. Gets the list of task definitions available on the ECS cluster.
+def get_repositories(ecs):
+    ecs_client = boto3.client(
         "ecs",
         "eu-west-2",
-        aws_access_key_id=docker.aws_access_key_id,
-        aws_secret_access_key=docker.aws_secret_access_key,
+        aws_access_key_id=ecs.aws_access_key_id,
+        aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
-    taskDefs = ecs.list_task_definitions()
+    taskDefs = ecs_client.list_task_definitions()
 
     print(taskDefs)
 
     return taskDefs["taskDefinitionArns"]
 
 
-def get_vpcs(docker):
-    ec2 = boto3.client(
+def get_vpcs(ecs):
+    ec2_client = boto3.client(
         "ec2",
         "eu-west-2",
-        aws_access_key_id=docker.aws_access_key_id,
-        aws_secret_access_key=docker.aws_secret_access_key,
+        aws_access_key_id=ecs.aws_access_key_id,
+        aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
-    vpc_descr = ec2.describe_vpcs()
+    vpc_descr = ec2_client.describe_vpcs()
     print(vpc_descr)
 
     vpcs = [vpc["VpcId"] for vpc in vpc_descr["Vpcs"]]
@@ -315,32 +311,32 @@ def get_vpcs(docker):
     return vpcs
 
 
-def get_subnets(docker, vpc):
+def get_subnets(ecs, vpc):
     subnets = boto3.resource(
         "ec2",
         "eu-west-2",
-        aws_access_key_id=docker.aws_access_key_id,
-        aws_secret_access_key=docker.aws_secret_access_key,
+        aws_access_key_id=ecs.aws_access_key_id,
+        aws_secret_access_key=ecs.aws_secret_access_key,
     ).subnets.filter(Filters=[{"Name": "vpc-id", "Values": [vpc]}])
     return [sn.id for sn in subnets]
 
 
-def get_security_groups(docker, vpc):
+def get_security_groups(ecs, vpc):
     security_groups = boto3.resource(
         "ec2",
         "eu-west-2",
-        aws_access_key_id=docker.aws_access_key_id,
-        aws_secret_access_key=docker.aws_secret_access_key,
+        aws_access_key_id=ecs.aws_access_key_id,
+        aws_secret_access_key=ecs.aws_secret_access_key,
     ).security_groups.filter(Filters=[{"Name": "vpc-id", "Values": [vpc]}])
     return [sg.id for sg in security_groups]
 
 
-def create_container(docker, image, subnet, security_group, challenge_id, flag):
-    ecs = boto3.client(
+def create_task(ecs, image, subnet, security_group, challenge_id, random_flag):
+    ecs_client = boto3.client(
         "ecs",
         region_name="eu-west-2",
-        aws_access_key_id=docker.aws_access_key_id,
-        aws_secret_access_key=docker.aws_secret_access_key,
+        aws_access_key_id=ecs.aws_access_key_id,
+        aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
     if is_teams_mode():
@@ -351,22 +347,22 @@ def create_container(docker, image, subnet, security_group, challenge_id, flag):
     owner = session.name
 
     owner = hashlib.md5(owner.encode("utf-8")).hexdigest()[:10]
-    container_name = "%s_%s" % (image.replace(":", "-").replace("/", "-"), owner)
-    print(container_name)
+    # container_name = "%s_%s" % (image.replace(":", "-").replace("/", "-"), owner)
+    # print(container_name)
 
     # Get the flags on the challenge
     flags = Flags.query.filter_by(challenge_id=challenge_id).all()
 
     for flag in flags:
         if flag.type == "static":
-            flag.content = flag.content.replace("{flag}", "{" + flag + "}")
+            flag.content = flag.content.replace("{flag}", "{" + random_flag + "}")
 
     environment_variables = [
         f"FLAG_{idx}={flag.content}" for idx, flag in enumerate(flags)
     ]
 
-    task = ecs.run_task(
-        cluster=docker.cluster,
+    task = ecs_client.run_task(
+        cluster=ecs.cluster,
         taskDefinition=image,
         launchType="FARGATE",
         networkConfiguration={
@@ -393,33 +389,22 @@ def create_container(docker, image, subnet, security_group, challenge_id, flag):
     return task
 
 
-# def delete_container(docker, instance_id):
-#    headers = {"Content-Type": "application/json"}
-#    do_request(
-#        docker,
-#        f"/containers/{instance_id}?force=true",
-#        headers=headers,
-#        method="DELETE",
-#    )
-#    return True
-
-
-class DockerChallengeType(BaseChallenge):
-    id = "docker"
-    name = "docker"
+class ECSChallengeType(BaseChallenge):
+    id = "ecs"
+    name = "ecs"
     templates = {
-        "create": "/plugins/docker_challenges/assets/create.html",
-        "update": "/plugins/docker_challenges/assets/update.html",
-        "view": "/plugins/docker_challenges/assets/view.html",
+        "create": "/plugins/ecs_challenges/assets/create.html",
+        "update": "/plugins/ecs_challenges/assets/update.html",
+        "view": "/plugins/ecs_challenges/assets/view.html",
     }
     scripts = {
-        "create": "/plugins/docker_challenges/assets/create.js",
-        "update": "/plugins/docker_challenges/assets/update.js",
-        "view": "/plugins/docker_challenges/assets/view.js",
+        "create": "/plugins/ecs_challenges/assets/create.js",
+        "update": "/plugins/ecs_challenges/assets/update.js",
+        "view": "/plugins/ecs_challenges/assets/view.js",
     }
-    route = "/plugins/docker_challenges/assets"
+    route = "/plugins/ecs_challenges/assets"
     blueprint = Blueprint(
-        "docker_challenges",
+        "ecs_challenges",
         __name__,
         template_folder="templates",
         static_folder="assets",
@@ -446,7 +431,7 @@ class DockerChallengeType(BaseChallenge):
     def delete(challenge):
         """
         This method is used to delete the resources used by a challenge.
-        NOTE: Will need to kill all containers here
+        NOTE: Will need to kill all tasks here
 
         :param challenge:
         :return:
@@ -460,7 +445,7 @@ class DockerChallengeType(BaseChallenge):
         ChallengeFiles.query.filter_by(challenge_id=challenge.id).delete()
         Tags.query.filter_by(challenge_id=challenge.id).delete()
         Hints.query.filter_by(challenge_id=challenge.id).delete()
-        DockerChallenge.query.filter_by(id=challenge.id).delete()
+        ECSChallenge.query.filter_by(id=challenge.id).delete()
         Challenges.query.filter_by(id=challenge.id).delete()
         db.session.commit()
 
@@ -472,12 +457,12 @@ class DockerChallengeType(BaseChallenge):
         :param challenge:
         :return: Challenge object, data dictionary to be returned to the user
         """
-        challenge = DockerChallenge.query.filter_by(id=challenge.id).first()
+        challenge = ECSChallenge.query.filter_by(id=challenge.id).first()
         data = {
             "id": challenge.id,
             "name": challenge.name,
             "value": challenge.value,
-            "docker_image": challenge.docker_image,
+            "task_definition": challenge.task_definition,
             "description": challenge.description,
             "category": challenge.category,
             "state": challenge.state,
@@ -486,10 +471,10 @@ class DockerChallengeType(BaseChallenge):
             "subnet": challenge.subnet,
             "security_group": challenge.security_group,
             "type_data": {
-                "id": DockerChallengeType.id,
-                "name": DockerChallengeType.name,
-                "templates": DockerChallengeType.templates,
-                "scripts": DockerChallengeType.scripts,
+                "id": ECSChallengeType.id,
+                "name": ECSChallengeType.name,
+                "templates": ECSChallengeType.templates,
+                "scripts": ECSChallengeType.scripts,
             },
         }
         return data
@@ -503,7 +488,7 @@ class DockerChallengeType(BaseChallenge):
         :return:
         """
         data = request.form or request.get_json()
-        challenge = DockerChallenge(**data)
+        challenge = ECSChallenge(**data)
         db.session.add(challenge)
         db.session.commit()
         return challenge
@@ -526,17 +511,17 @@ class DockerChallengeType(BaseChallenge):
 
         # Get the flag from the challenge the user is attempting
         if is_teams_mode():
-            challengetracker = DockerChallengeTracker.query.filter_by(
+            challengetracker = ECSChallengeTracker.query.filter_by(
                 challenge_id=challenge.id, owner_id=get_current_team().id
             ).first()
         else:
             print(get_current_user().__dict__)
-            challengetracker = DockerChallengeTracker.query.filter_by(
+            challengetracker = ECSChallengeTracker.query.filter_by(
                 challenge_id=challenge.id, owner_id=get_current_user().id
             ).first()
 
         if challengetracker is None:
-            return False, "Failed to find challenge container!"
+            return False, "Failed to find challenge task!"
 
         print(challengetracker.flag)
 
@@ -568,27 +553,27 @@ class DockerChallengeType(BaseChallenge):
         """
         data = request.form or request.get_json()
         submission = data["submission"].strip()
-        docker = DockerConfig.query.filter_by(id=1).first()
+        ecs = ECSConfig.query.filter_by(id=1).first()
         try:
             if is_teams_mode():
-                docker_containers = (
-                    DockerChallengeTracker.query.filter_by(
-                        docker_image=challenge.docker_image
+                ecs_tasks = (
+                    ECSChallengeTracker.query.filter_by(
+                        task_definition=challenge.task_definition
                     )
                     .filter_by(owner_id=team.id)
                     .first()
                 )
             else:
-                docker_containers = (
-                    DockerChallengeTracker.query.filter_by(
-                        docker_image=challenge.docker_image
+                ecs_tasks = (
+                    ECSChallengeTracker.query.filter_by(
+                        task_definition=challenge.task_definition
                     )
                     .filter_by(owner_id=user.id)
                     .first()
                 )
             # delete_container(docker, docker_containers.instance_id)
-            DockerChallengeTracker.query.filter_by(
-                instance_id=docker_containers.instance_id
+            ECSChallengeTracker.query.filter_by(
+                instance_id=ecs_tasks.instance_id
             ).delete()
         except:
             pass
@@ -628,32 +613,30 @@ class DockerChallengeType(BaseChallenge):
         # db.session.close()
 
 
-class DockerChallenge(Challenges):
-    __mapper_args__ = {"polymorphic_identity": "docker"}
+class ECSChallenge(Challenges):
+    __mapper_args__ = {"polymorphic_identity": "ecs"}
     id = db.Column(None, db.ForeignKey("challenges.id"), primary_key=True)
-    docker_image = db.Column(db.String(128), index=True)
+    task_definition = db.Column(db.String(128), index=True)
     subnet = db.Column(db.String(128), index=True)
     security_group = db.Column(db.String(128), index=True)
 
 
 # API
-container_namespace = Namespace(
-    "container", description="Endpoint to interact with containers"
-)
+task_namespace = Namespace("task", description="Endpoint to interact with tasks")
 
 
-@container_namespace.route("", methods=["POST", "GET"])
-class ContainerAPI(Resource):
+@task_namespace.route("", methods=["POST", "GET"])
+class TaskAPI(Resource):
     @authed_only
     # I wish this was Post... Issues with API/CSRF and whatnot. Open to a Issue solving this.
     def get(self):
         challenge_id = request.args.get("id")
-        challenge = DockerChallenge.query.filter_by(id=challenge_id).first()
+        challenge = ECSChallenge.query.filter_by(id=challenge_id).first()
         if challenge is None:
             return abort(403)
-        docker = DockerConfig.query.filter_by(id=1).first()
-        containers = DockerChallengeTracker.query.all()
-        if challenge.docker_image not in get_repositories(docker):
+        ecs = ECSConfig.query.filter_by(id=1).first()
+        # tasks = ECSChallengeTracker.query.all()
+        if challenge.task_definition not in get_repositories(ecs):
             return abort(403)
         if is_teams_mode():
             session = get_current_team()
@@ -672,7 +655,7 @@ class ContainerAPI(Resource):
             #        ).delete()
             #        db.session.commit()
         check = (
-            DockerChallengeTracker.query.filter_by(owner_id=session.id)
+            ECSChallengeTracker.query.filter_by(owner_id=session.id)
             .filter_by(challenge_id=challenge.id)
             .first()
         )
@@ -697,19 +680,19 @@ class ContainerAPI(Resource):
         #    db.session.commit()
         # portsbl = get_unavailable_ports(docker)
         flag = "".join(random.choices(string.ascii_uppercase + string.digits, k=128))
-        create = create_container(
-            docker,
-            challenge.docker_image,
+        create = create_task(
+            ecs,
+            challenge.task_definition,
             challenge.subnet,
             challenge.security_group,
             challenge_id,
             flag,
         )
 
-        entry = DockerChallengeTracker(
+        entry = ECSChallengeTracker(
             owner_id=session.id,
             challenge_id=challenge.id,
-            docker_image=challenge.docker_image,
+            task_definition=challenge.task_definition,
             timestamp=unix_time(datetime.utcnow()),
             revert_time=unix_time(datetime.utcnow()) + 300,
             instance_id=create["tasks"][0]["taskArn"],
@@ -724,27 +707,26 @@ class ContainerAPI(Resource):
         return
 
 
-active_docker_namespace = Namespace(
-    "docker", description="Endpoint to retrieve User Docker Image Status"
+active_ecs_namespace = Namespace(
+    "ecs", description="Endpoint to retrieve User ECS Task Definition Status"
 )
 
 
-@active_docker_namespace.route("", methods=["POST", "GET"])
-class DockerStatus(Resource):
+@active_ecs_namespace.route("", methods=["POST", "GET"])
+class ECSStatus(Resource):
     """
-    The Purpose of this API is to retrieve a public JSON string of all docker containers
+    The Purpose of this API is to retrieve a public JSON string of all ECS tasks
     in use by the current team/user.
     """
 
     @authed_only
     def get(self):
-        docker = DockerConfig.query.filter_by(id=1).first()
         if is_teams_mode():
             session = get_current_team()
-            tracker = DockerChallengeTracker.query.filter_by(owner_id=session.id)
+            tracker = ECSChallengeTracker.query.filter_by(owner_id=session.id)
         else:
             session = get_current_user()
-            tracker = DockerChallengeTracker.query.filter_by(owner_id=session.id)
+            tracker = ECSChallengeTracker.query.filter_by(owner_id=session.id)
         data = list()
         for i in tracker:
             data.append(
@@ -761,20 +743,20 @@ class DockerStatus(Resource):
         return {"success": True, "data": data}
 
 
-docker_namespace = Namespace("docker", description="Endpoint to retrieve dockerstuff")
+ecs_namespace = Namespace("ecs", description="Endpoint to retrieve ECS stuff")
 
 
-@docker_namespace.route("", methods=["POST", "GET"])
-class DockerAPI(Resource):
+@ecs_namespace.route("", methods=["POST", "GET"])
+class ECSAPI(Resource):
     """
-    This is for creating Docker Challenges. The purpose of this API is to populate the Docker Image Select form
+    This is for creating ECS Challenges. The purpose of this API is to populate the ECS Task Definition Select form
     object in the Challenge Creation Screen.
     """
 
     @admins_only
     def get(self):
-        docker = DockerConfig.query.filter_by(id=1).first()
-        images = get_repositories(docker)
+        ecs = ECSConfig.query.filter_by(id=1).first()
+        images = get_repositories(ecs)
         if images:
             data = list()
             for i in images:
@@ -783,25 +765,25 @@ class DockerAPI(Resource):
         else:
             return {
                 "success": False,
-                "data": [{"name": "Error in Docker Config!"}],
+                "data": [{"name": "Error in ECS Config!"}],
             }, 400
 
 
-docker_config_namespace = Namespace(
-    "docker_config",
+ecs_config_namespace = Namespace(
+    "ecs_config",
     description="Endpoint for admins to be able to retreive information about the configuration",
 )
 
 
-@docker_config_namespace.route("", methods=["GET"])
-class DockerConfigAPI(Resource):
+@ecs_config_namespace.route("", methods=["GET"])
+class ECSConfigAPI(Resource):
     @admins_only
     def get(self):
-        docker = DockerConfig.query.filter_by(id=1).first()
+        ecs = ECSConfig.query.filter_by(id=1).first()
 
-        if None not in [docker.subnets, docker.security_groups]:
-            subnets = docker.subnets.split(",")
-            security_groups = docker.security_groups.split(",")
+        if None not in [ecs.subnets, ecs.security_groups]:
+            subnets = ecs.subnets.split(",")
+            security_groups = ecs.security_groups.split(",")
 
             return {
                 "success": True,
@@ -813,12 +795,12 @@ class DockerConfigAPI(Resource):
 
 def load(app):
     app.db.create_all()
-    CHALLENGE_CLASSES["docker"] = DockerChallengeType
-    register_plugin_assets_directory(app, base_path="/plugins/docker_challenges/assets")
-    define_docker_admin(app)
-    define_docker_status(app)
-    CTFd_API_v1.add_namespace(docker_namespace, "/docker")
-    CTFd_API_v1.add_namespace(docker_config_namespace, "/docker_config")
-    CTFd_API_v1.add_namespace(container_namespace, "/container")
-    CTFd_API_v1.add_namespace(active_docker_namespace, "/docker_status")
-    CTFd_API_v1.add_namespace(kill_container, "/nuke")
+    CHALLENGE_CLASSES["ecs"] = ECSChallengeType
+    register_plugin_assets_directory(app, base_path="/plugins/ecs_challenges/assets")
+    define_ecs_admin(app)
+    define_ecs_status(app)
+    CTFd_API_v1.add_namespace(ecs_namespace, "/ecs")
+    CTFd_API_v1.add_namespace(ecs_config_namespace, "/ecs_config")
+    CTFd_API_v1.add_namespace(task_namespace, "/task")
+    CTFd_API_v1.add_namespace(active_ecs_namespace, "/ecs_status")
+    CTFd_API_v1.add_namespace(kill_task, "/nuke")

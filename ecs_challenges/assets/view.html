@@ -1,16 +1,16 @@
 {% extends "challenge.html" %}
 {% block description %}
 <script>
-    var DOCKER_CONTAINER = '{{ challenge.docker_image | safe }}';
+    var ECS_TASK = '{{ challenge.instance_id | safe }}';
     (function () {
-        get_docker_status(DOCKER_CONTAINER);
+        get_ecs_status(ECS_TASK);
     })();
 </script>
 {{ challenge.html }}
-<div class='mb-3 text-center' id='docker_container'>
+<div class='mb-3 text-center' id='ecs_container'>
     <span>
         <a onclick="start_container('{{ challenge.id | safe }}');" class='btn btn-dark'>
-            <small style='color:white;'><i class="fas fa-play"></i> Start Docker Instance</small>
+            <small style='color:white;'><i class="fas fa-play"></i> Start ECS Task</small>
         </a>
     </span>
 </div>
