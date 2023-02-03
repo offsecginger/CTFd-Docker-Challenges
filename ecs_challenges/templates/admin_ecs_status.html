@@ -21,8 +21,7 @@
                 <thead>
                     <tr>
                         <th width="10px" class="text-center" style="cursor: pointer;" onclick="sortTable(0)">ID</th>
-                        <th class="text-left" style="cursor: pointer;" onclick="sortTable(1)">{% if tasks[0].team_id
-                            %}Team{% else %}User{% endif %}</th>
+                        <th class="text-left" style="cursor: pointer;" onclick="sortTable(1)">Owner</th>
                         <th class="text-left" style="cursor: pointer;" onclick="sortTable(2)">ECS Task Definition</th>
                         <th class="text-left" style="cursor: pointer;" onclick="sortTable(3)">Instance ID</th>
                         <th class="text-left">Revoke</th>
@@ -32,14 +31,9 @@
                     {% for task in tasks %}
                     <tr id='tr_{{task.instance_id}}' name='{{task.id}}'>
                         <td class='text-center' value='{{task.id}}'>{{task.id}}</td>
-                        {% if task.team_id %}
-                        <td class='text-center' value='{{task.team_id | safe }}'>{{task.team_id | safe }}</td>
-                        {% else %}
-                        <td class='text-center' value='{{task.team_id | safe }}'>{{task.user_id | safe }}</td>
-                        {% endif %}
+                        <td class='text-center' value='{{task.owner_id | safe }}'>{{task.owner_id | safe }}</td>
                         <td class='text-center' value='{{task.task_definition}}'>{{task.task_definition}}</td>
-                        <td class='text-center' value='{{task.instance_id | truncate(15)}}'>{{task.instance_id |
-                            truncate(15)}}</td>
+                        <td class='text-center' value='{{task.instance_id | truncate(15)}}'>{{task.instance_id}}</td>
                         <td class='text-center'><a id="delete_{{task.instance_id}}" style="cursor: pointer;"
                                 class="fas fa-trash" onclick="check_nuke_container('{{task.instance_id}}', false)"></a>
                         </td>
@@ -124,7 +118,7 @@
                 });
             }
         };
-        xhttp.open("GET", "/api/v1/nuke?container=" + instance + "&all=" + all, true);
+        xhttp.open("GET", "/api/v1/nuke?task=" + instance + "&all=" + all, true);
         xhttp.send();
     }
 </script>

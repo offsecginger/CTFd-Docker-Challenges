@@ -47,6 +47,19 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="region-input">
+                        AWS Region
+                    </label>
+                    {% if config.region %}
+                    <input class="form-control" type="text" name="region" id="region_input-input"
+                        placeholder="Ex: eu-west-1" value='{{ config.region }}' />
+                    {% else %}
+                    <input class="form-control" type="text" name="region" id="region_input"
+                        placeholder="Ex: eu-west-1" />
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
                     <label for="cluster-input">
                         ECS Cluster
                     </label>

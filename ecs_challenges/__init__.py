@@ -159,6 +159,7 @@ def define_ecs_admin(app):
             b.aws_access_key_id = request.form["aws_access_key_id"]
             b.aws_secret_access_key = request.form["aws_secret_access_key"]
             b.cluster = request.form["cluster"]
+            b.region = request.form["region"]
             try:
                 b.repositories = ",".join(
                     request.form.to_dict(flat=False)["repositories"]
@@ -238,16 +239,15 @@ def define_ecs_status(app):
     @admin_ecs_status.route("/admin/ecs_status", methods=["GET", "POST"])
     @admins_only
     def ecs_admin():
-        ecs_config = ECSConfig.query.filter_by(id=1).first()
-        ecs_tracker = ECSChallengeTracker.query.all()
-        for i in ecs_tracker:
+        ecs_tasks = ECSChallengeTracker.query.all()
+        for i in ecs_tasks:
             if is_teams_mode():
                 name = Teams.query.filter_by(id=i.owner_id).first()
                 i.owner_id = name.name
             else:
                 name = Users.query.filter_by(id=i.owner_id).first()
                 i.owner_id = name.name
-        return render_template("admin_ecs_status.html", ecs=ecs_tracker)
+        return render_template("admin_ecs_status.html", tasks=ecs_tasks)
 
     app.register_blueprint(admin_ecs_status)
 
@@ -265,12 +265,12 @@ class KillTaskAPI(Resource):
         ecs_tracker = ECSChallengeTracker.query.all()
         if full == "true":
             for c in ecs_tracker:
-                # delete_container(ecs_config, c.instance_id)
+                stop_task(ecs_config, c.instance_id)
                 ECSChallengeTracker.query.filter_by(instance_id=c.instance_id).delete()
                 db.session.commit()
 
         elif task != "null" and task in [c.instance_id for c in ecs_tracker]:
-            # delete_container(ecs_config, container)
+            stop_task(ecs_config, task)
             ECSChallengeTracker.query.filter_by(instance_id=task).delete()
             db.session.commit()
 
@@ -283,7 +283,7 @@ class KillTaskAPI(Resource):
 def get_repositories(ecs):
     ecs_client = boto3.client(
         "ecs",
-        "eu-west-2",
+        ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
@@ -298,7 +298,7 @@ def get_repositories(ecs):
 def get_vpcs(ecs):
     ec2_client = boto3.client(
         "ec2",
-        "eu-west-2",
+        ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
@@ -314,7 +314,7 @@ def get_vpcs(ecs):
 def get_subnets(ecs, vpc):
     subnets = boto3.resource(
         "ec2",
-        "eu-west-2",
+        ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
     ).subnets.filter(Filters=[{"Name": "vpc-id", "Values": [vpc]}])
@@ -324,17 +324,32 @@ def get_subnets(ecs, vpc):
 def get_security_groups(ecs, vpc):
     security_groups = boto3.resource(
         "ec2",
-        "eu-west-2",
+        ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
     ).security_groups.filter(Filters=[{"Name": "vpc-id", "Values": [vpc]}])
     return [sg.id for sg in security_groups]
 
 
-def create_task(ecs, image, subnet, security_group, challenge_id, random_flag):
+def stop_task(ecs, task_id):
     ecs_client = boto3.client(
         "ecs",
-        region_name="eu-west-2",
+        region_name=ecs.region,
+        aws_access_key_id=ecs.aws_access_key_id,
+        aws_secret_access_key=ecs.aws_secret_access_key,
+    )
+
+    ecs_client.stop_task(
+        cluster=ecs.cluster, task=task_id, reason="Stopped by ECS CTFd Plugin"
+    )
+
+
+def create_task(
+    ecs, task_definition, subnet, security_group, challenge_id, random_flag
+):
+    ecs_client = boto3.client(
+        "ecs",
+        region_name=ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
@@ -347,23 +362,25 @@ def create_task(ecs, image, subnet, security_group, challenge_id, random_flag):
     owner = session.name
 
     owner = hashlib.md5(owner.encode("utf-8")).hexdigest()[:10]
-    # container_name = "%s_%s" % (image.replace(":", "-").replace("/", "-"), owner)
-    # print(container_name)
 
     # Get the flags on the challenge
     flags = Flags.query.filter_by(challenge_id=challenge_id).all()
 
-    for flag in flags:
-        if flag.type == "static":
-            flag.content = flag.content.replace("{flag}", "{" + random_flag + "}")
-
     environment_variables = [
-        f"FLAG_{idx}={flag.content}" for idx, flag in enumerate(flags)
+        (
+            f"FLAG_{idx}",
+            f"{flag.content if flag.type != 'static' else flag.content.replace('{flag}', f'{{{random_flag}}}')}",
+        )
+        for idx, flag in enumerate(flags)
     ]
+
+    containerDefinitions = ecs_client.describe_task_definition(
+        taskDefinition=task_definition
+    )["taskDefinition"]["containerDefinitions"]
 
     task = ecs_client.run_task(
         cluster=ecs.cluster,
-        taskDefinition=image,
+        taskDefinition=task_definition,
         launchType="FARGATE",
         networkConfiguration={
             "awsvpcConfiguration": {
@@ -375,17 +392,17 @@ def create_task(ecs, image, subnet, security_group, challenge_id, random_flag):
         overrides={
             "containerOverrides": [
                 {
-                    "name": "nginx",
+                    "name": containerDef["name"],
                     "environment": [
-                        {"name": f"FLAG_{idx}", "value": flag.content}
-                        for idx, flag in enumerate(flags)
+                        {"name": name, "value": flag}
+                        for (name, flag) in environment_variables
                     ],
                 }
+                for containerDef in containerDefinitions
             ],
         },
     )
 
-    print(task)
     return task
 
 
@@ -506,8 +523,6 @@ class ECSChallengeType(BaseChallenge):
         """
 
         data = request.form or request.get_json()
-        print(request.get_json())
-        print(data)
 
         # Get the flag from the challenge the user is attempting
         if is_teams_mode():
@@ -528,17 +543,31 @@ class ECSChallengeType(BaseChallenge):
         data = request.form or request.get_json()
         submission = data["submission"].strip()
         flags = Flags.query.filter_by(challenge_id=challenge.id).all()
-        for flag in flags:
-            # if get_flag_class(flag.type).compare(flag, submission):
-            #    return True, "Correct"
-            if flag.type == "static":
-                print(flag.content)
-                flag.content = flag.content.replace(
-                    "{flag}", "{" + challengetracker.flag + "}"
-                )
 
-            if get_flag_class(flag.type).compare(flag, submission):
-                return True, "Correct"
+        for flag in flags:
+            if flag.type == "static":
+                saved = flag.content.replace("{flag}", f"{{{challengetracker.flag}}}")
+                data = flag.data
+
+                if len(saved) != len(submission):
+                    return False
+                result = 0
+
+                if data == "case_insensitive":
+                    for x, y in zip(saved.lower(), submission.lower()):
+                        result |= ord(x) ^ ord(y)
+                else:
+                    for x, y in zip(saved, submission):
+                        result |= ord(x) ^ ord(y)
+
+                if result == 0:
+                    return True, "Correct"
+                else:
+                    return False, "Incorrect"
+
+            else:
+                if get_flag_class(flag.type).compare(flag, submission):
+                    return True, "Correct"
         return False, "Incorrect"
 
     @staticmethod
@@ -556,7 +585,7 @@ class ECSChallengeType(BaseChallenge):
         ecs = ECSConfig.query.filter_by(id=1).first()
         try:
             if is_teams_mode():
-                ecs_tasks = (
+                ecs_task = (
                     ECSChallengeTracker.query.filter_by(
                         task_definition=challenge.task_definition
                     )
@@ -564,16 +593,16 @@ class ECSChallengeType(BaseChallenge):
                     .first()
                 )
             else:
-                ecs_tasks = (
+                ecs_task = (
                     ECSChallengeTracker.query.filter_by(
                         task_definition=challenge.task_definition
                     )
                     .filter_by(owner_id=user.id)
                     .first()
                 )
-            # delete_container(docker, docker_containers.instance_id)
+            stop_task(ecs, ecs_task.instance_id)
             ECSChallengeTracker.query.filter_by(
-                instance_id=ecs_tasks.instance_id
+                instance_id=ecs_task.instance_id
             ).delete()
         except:
             pass
@@ -586,8 +615,6 @@ class ECSChallengeType(BaseChallenge):
         )
         db.session.add(solve)
         db.session.commit()
-        # trying if this solces the detached instance error...
-        # db.session.close()
 
     @staticmethod
     def fail(user, team, challenge, request):
@@ -610,7 +637,6 @@ class ECSChallengeType(BaseChallenge):
         )
         db.session.add(wrong)
         db.session.commit()
-        # db.session.close()
 
 
 class ECSChallenge(Challenges):
@@ -635,7 +661,7 @@ class TaskAPI(Resource):
         if challenge is None:
             return abort(403)
         ecs = ECSConfig.query.filter_by(id=1).first()
-        # tasks = ECSChallengeTracker.query.all()
+        tasks = ECSChallengeTracker.query.all()
         if challenge.task_definition not in get_repositories(ecs):
             return abort(403)
         if is_teams_mode():
@@ -644,16 +670,16 @@ class TaskAPI(Resource):
             session = get_current_user()
 
             # First we'll delete all old docker containers (+2 hours)
-            # for i in containers:
-            #    if (
-            #        int(session.id) == int(i.owner_id)
-            #        and (unix_time(datetime.utcnow()) - int(i.timestamp)) >= 7200
-            #    ):
-            #        # delete_container(docker, i.instance_id)
-            #        DockerChallengeTracker.query.filter_by(
-            #            instance_id=i.instance_id
-            #        ).delete()
-            #        db.session.commit()
+            for i in tasks:
+                if (
+                    int(session.id) == int(i.owner_id)
+                    and (unix_time(datetime.utcnow()) - int(i.timestamp)) >= 7200
+                ):
+                    stop_task(ecs, i.instance_id)
+                    ECSChallengeTracker.query.filter_by(
+                        instance_id=i.instance_id
+                    ).delete()
+                    db.session.commit()
         check = (
             ECSChallengeTracker.query.filter_by(owner_id=session.id)
             .filter_by(challenge_id=challenge.id)
@@ -667,17 +693,17 @@ class TaskAPI(Resource):
         ):
             return abort(403)
         # The exception would be if we are reverting a box. So we'll delete it if it exists and has been around for more than 5 minutes.
-        # elif check != None:
-        #    # delete_container(docker, check.instance_id)
-        #    if is_teams_mode():
-        #        DockerChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
-        #            challenge_id=challenge.id
-        #        ).delete()
-        #    else:
-        #        DockerChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
-        #            challenge_id=challenge.id
-        #        ).delete()
-        #    db.session.commit()
+        elif check != None:
+            stop_task(ecs, check.instance_id)
+            if is_teams_mode():
+                ECSChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
+                    challenge_id=challenge.id
+                ).delete()
+            else:
+                ECSChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
+                    challenge_id=challenge.id
+                ).delete()
+            db.session.commit()
         # portsbl = get_unavailable_ports(docker)
         flag = "".join(random.choices(string.ascii_uppercase + string.digits, k=128))
         create = create_task(

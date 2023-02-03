@@ -44,6 +44,7 @@ function get_ecs_status(challenge) {
     $.get("/api/v1/ecs_status", function (result) {
         $.each(result['data'], function (i, item) {
             if (item.challenge_id == challenge) {
+                console.log(item);
                 var ports = String(item.ports).split(',');
                 var data = '';
                 $.each(ports, function (x, port) {
