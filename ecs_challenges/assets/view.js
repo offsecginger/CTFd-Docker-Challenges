@@ -44,14 +44,13 @@ function get_ecs_status(challenge) {
     $.get("/api/v1/ecs_status", function (result) {
         $.each(result['data'], function (i, item) {
             if (item.challenge_id == challenge) {
-                console.log(item);
                 var ports = String(item.ports).split(',');
                 var data = '';
                 $.each(ports, function (x, port) {
                     port = String(port)
                     //data = data + 'Host: ' + item.host + ' Port: ' + port + '<br />';
                 })
-                $('#ecs_container').html('<pre>ECS Task Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).substring(0, 10) + '_revert_container"></div>');
+                $('#ecs_container').html('<pre>ECS Task Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_revert_container"></div>');
                 var countDownDate = new Date(parseInt(item.revert_time) * 1000).getTime();
                 var x = setInterval(function () {
                     var now = new Date().getTime();
@@ -61,10 +60,10 @@ function get_ecs_status(challenge) {
                     if (seconds < 10) {
                         seconds = "0" + seconds
                     }
-                    $("#" + String(item.instance_id).substring(0, 10) + "_revert_container").html('Next Revert Available in ' + minutes + ':' + seconds);
+                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").html('Next Revert Available in ' + minutes + ':' + seconds);
                     if (distance < 0) {
                         clearInterval(x);
-                        $("#" + String(item.instance_id).substring(0, 10) + "_revert_container").html('<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>');
+                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").html('<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>');
                     }
                 }, 1000);
                 return false;
