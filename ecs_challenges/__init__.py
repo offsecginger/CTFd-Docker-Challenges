@@ -82,6 +82,56 @@ from CTFd.forms import BaseForm
 from CTFd.forms.fields import SubmitField
 from CTFd.utils.config import get_themes
 
+import os
+
+from telnetlib import ENCRYPT
+from datetime import datetime, timedelta
+from Crypto.Hash import HMAC, SHA256
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+from base64 import b64encode
+
+
+GUACAMOLE_JSON_SECRET_KEY = os.environ["GUACAMOLE_JSON_SECRET_KEY"]
+
+
+class guacamole:
+    @staticmethod
+    def encryptJWT(key, data):
+        key = bytes.fromhex(key)
+        h = HMAC.new(key, digestmod=SHA256)
+        h.update(bytes(data, "UTF-8"))
+        sig = h.digest()
+        payload = sig + bytes(data, "UTF-8")
+        iv = b"\0" * AES.block_size
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        return b64encode(cipher.encrypt(pad(payload, AES.block_size)))
+
+    @staticmethod
+    def createJSON(ID, IP_ADDRESS):
+        DATETIME = datetime.now() + timedelta(hours=2)
+        TIMESTAMP = datetime.timestamp(DATETIME)
+        payload = {
+            "username": "",
+            "expires": str(TIMESTAMP).split(".")[0] + "000",
+            "connections": {
+                ID: {
+                    "protocol": "ssh",
+                    "parameters": {
+                        "hostname": IP_ADDRESS.strip(),
+                        "username": "root",
+                        "private-key": os.environ["GUACAMOLE_SSH_PRIVATE_KEY"],
+                        "port": 22,
+                        "proxy_hostname": "localhost",
+                        "proxy_port": 4822,
+                        "recording-path": "/tmp/recordings",
+                        "recording-name": "My-Connection-${GUAC_USERNAME}-${GUAC_DATE}-${GUAC_TIME}",
+                    },
+                }
+            },
+        }
+        return payload
+
 
 class ECSConfig(db.Model):
     """
@@ -89,7 +139,7 @@ class ECSConfig(db.Model):
     """
 
     id = db.Column(db.Integer, primary_key=True)
-    repositories = db.Column("repositories", db.String(1024))
+    repositories = db.Column("repositories", db.Text)
 
     active_vpc = db.Column("active_vpc", db.String(64), index=True)
 
@@ -97,10 +147,14 @@ class ECSConfig(db.Model):
     aws_secret_access_key = db.Column("aws_secret_access_key", db.String(40))
     cluster = db.Column("cluster", db.String(128))
 
-    subnets = db.Column("subnets", db.String(1024))
-    security_groups = db.Column("security_groups", db.String(1024))
+    subnets = db.Column("subnets", db.Text)
+    security_groups = db.Column("security_groups", db.Text)
 
     region = db.Column("region", db.String(32))
+
+    guacamole_address = db.Column("guacamole_address", db.String(128))
+
+    guacamole_json_secret_key = db.Column("guacamole_json_secret_key", db.String(128))
 
 
 class ECSChallengeTracker(db.Model):
@@ -132,7 +186,7 @@ class ECSConfigForm(BaseForm):
     cluster = StringField(
         "Cluster", description="The ECS Cluster to run the challenges within"
     )
-    repositories = SelectMultipleField("Repositories")
+    clusters = SelectMultipleField("VPC")
     vpcs = SelectMultipleField("VPC")
     submit = SubmitField("Submit")
 
@@ -158,15 +212,18 @@ def define_ecs_admin(app):
                 b = ECSConfig()
             b.aws_access_key_id = request.form["aws_access_key_id"]
             b.aws_secret_access_key = request.form["aws_secret_access_key"]
-            b.cluster = request.form["cluster"]
             b.region = request.form["region"]
+            b.repositories = json.dumps(get_repositories(b))
+
+            b.guacamole_json_secret_key = request.form["guacamole_json_secret_key"]
+            b.guacamole_address = request.form["guacamole_address"]
+
             try:
-                b.repositories = ",".join(
-                    request.form.to_dict(flat=False)["repositories"]
-                )
+                b.cluster = request.form.to_dict(flat=False)["cluster"][0]
             except:
                 print(traceback.print_exc())
-                b.repositories = None
+                b.cluster = None
+
             try:
                 b.active_vpc = request.form.to_dict(flat=False)["active_vpc"][0]
             except:
@@ -176,22 +233,23 @@ def define_ecs_admin(app):
             # Fetch the subnets and security groups associated with this VPC
 
             if b.active_vpc is not None:
-                b.subnets = ",".join(get_subnets(b, b.active_vpc))
-                b.security_groups = ",".join(get_security_groups(b, b.active_vpc))
+                b.subnets = json.dumps(get_subnets(b, b.active_vpc))
+                b.security_groups = json.dumps(get_security_groups(b, b.active_vpc))
 
             db.session.add(b)
             db.session.commit()
             ecs = ECSConfig.query.filter_by(id=1).first()
 
         try:
-            repos = get_repositories(ecs)
+            clusters = get_clusters(ecs)
         except:
             print(traceback.print_exc())
-            repos = list()
-        if len(repos) == 0:
-            form.repositories.choices = [("ERROR", "Failed to connect to AWS")]
+            clusters = list()
+
+        if len(clusters) == 0:
+            form.clusters.choices = [("ERROR", "Failed to connect to AWS")]
         else:
-            form.repositories.choices = [(d, d) for d in repos]
+            form.clusters.choices = [(d, d) for d in clusters]
 
         try:
             vpcs = get_vpcs(ecs)
@@ -201,28 +259,41 @@ def define_ecs_admin(app):
         if len(vpcs) == 0:
             form.vpcs.choices = [("ERROR", "Failed to connect to AWS")]
         else:
-            form.vpcs.choices = [(d, d) for d in vpcs]
+            form.vpcs.choices = [
+                (d["value"], d["value"] + f" [{d['name']}]" if d["name"] else "")
+                for d in vpcs
+            ]
 
         dconfig = ECSConfig.query.first()
-        try:
-            selected_repos = dconfig.repositories
-            if selected_repos == None:
-                selected_repos = list()
-        except:
-            print(traceback.print_exc())
-            selected_repos = []
+        if not dconfig:
+            dconfig = ECSConfig()
+
+        if dconfig.guacamole_json_secret_key is None:
+            if "GUACAMOLE_JSON_SECRET_KEY" in os.environ.keys():
+                dconfig.guacamole_json_secret_key = os.environ[
+                    "GUACAMOLE_JSON_SECRET_KEY"
+                ]
+
+        if dconfig.guacamole_address is None:
+            if "GUACAMOLE_ADDRESS" in os.environ.keys():
+                dconfig.guacamole_address = os.environ["GUACAMOLE_ADDRESS"]
 
         try:
             active_vpc = ecs.active_vpc
         except:
             active_vpc = None
 
+        try:
+            cluster = ecs.cluster
+        except:
+            cluster = None
+
         return render_template(
             "ecs_config.html",
             config=dconfig,
             form=form,
-            repos=selected_repos,
             active_vpc=active_vpc,
+            cluster=cluster,
         )
 
     app.register_blueprint(admin_ecs_config)
@@ -290,9 +361,18 @@ def get_repositories(ecs):
 
     taskDefs = ecs_client.list_task_definitions()
 
-    print(taskDefs)
-
     return taskDefs["taskDefinitionArns"]
+
+
+def get_clusters(ecs):
+    ecs_client = boto3.client(
+        "ecs",
+        ecs.region,
+        aws_access_key_id=ecs.aws_access_key_id,
+        aws_secret_access_key=ecs.aws_secret_access_key,
+    )
+
+    return ecs_client.list_clusters()["clusterArns"]
 
 
 def get_vpcs(ecs):
@@ -304,31 +384,84 @@ def get_vpcs(ecs):
     )
 
     vpc_descr = ec2_client.describe_vpcs()
-    print(vpc_descr)
 
-    vpcs = [vpc["VpcId"] for vpc in vpc_descr["Vpcs"]]
+    vpcs = vpc_descr["Vpcs"]
 
-    return vpcs
+    return [
+        {
+            "value": vpc["VpcId"],
+            "name": tags[0]["Value"]
+            if len(tags := list(filter(lambda tag: tag["Key"] == "Name", vpc["Tags"])))
+            else "",
+        }
+        for vpc in vpcs
+    ]
 
 
 def get_subnets(ecs, vpc):
-    subnets = boto3.resource(
+    ec2_client = boto3.client(
         "ec2",
         ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
-    ).subnets.filter(Filters=[{"Name": "vpc-id", "Values": [vpc]}])
-    return [sn.id for sn in subnets]
+    )
+
+    subnets = filter(
+        lambda subnet: subnet["VpcId"] == vpc,
+        ec2_client.describe_subnets()["Subnets"],
+    )
+
+    return [
+        {
+            "value": sn["SubnetId"],
+            "name": tags[0]["Value"]
+            if len(tags := list(filter(lambda tag: tag["Key"] == "Name", sn["Tags"])))
+            else "",
+        }
+        for sn in subnets
+    ]
 
 
 def get_security_groups(ecs, vpc):
-    security_groups = boto3.resource(
+    ec2_client = boto3.client(
         "ec2",
         ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
-    ).security_groups.filter(Filters=[{"Name": "vpc-id", "Values": [vpc]}])
-    return [sg.id for sg in security_groups]
+    )
+
+    security_groups = filter(
+        lambda security_group: security_group["VpcId"] == vpc,
+        ec2_client.describe_security_groups()["SecurityGroups"],
+    )
+
+    return [{"value": sg["GroupId"], "name": sg["GroupName"]} for sg in security_groups]
+
+
+def get_address_of_task_container(ecs, task, container_name):
+    ecs_client = boto3.client(
+        "ecs",
+        ecs.region,
+        aws_access_key_id=ecs.aws_access_key_id,
+        aws_secret_access_key=ecs.aws_secret_access_key,
+    )
+
+    task = ecs_client.describe_tasks(cluster=ecs.cluster, tasks=[task])["tasks"][0]
+
+    containers = task["containers"]
+
+    container = list(
+        filter(lambda container: container["name"] == container_name, containers)
+    )[0]
+
+    network_interfaces = container["networkInterfaces"]
+
+    if len(network_interfaces) == 0:
+        return None
+
+    network_interface = network_interfaces[0]
+
+    return network_interface["privateIpv4Address"]
 
 
 def stop_task(ecs, task_id):
@@ -366,6 +499,8 @@ def create_task(
     # Get the flags on the challenge
     flags = Flags.query.filter_by(challenge_id=challenge_id).all()
 
+    challenge = ECSChallenge.query.filter_by(id=challenge_id).first()
+
     environment_variables = [
         (
             f"FLAG_{idx}",
@@ -373,10 +508,6 @@ def create_task(
         )
         for idx, flag in enumerate(flags)
     ]
-
-    containerDefinitions = ecs_client.describe_task_definition(
-        taskDefinition=task_definition
-    )["taskDefinition"]["containerDefinitions"]
 
     task = ecs_client.run_task(
         cluster=ecs.cluster,
@@ -392,15 +523,18 @@ def create_task(
         overrides={
             "containerOverrides": [
                 {
-                    "name": containerDef["name"],
+                    "name": challenge.entrypoint_container,
                     "environment": [
                         {"name": name, "value": flag}
                         for (name, flag) in environment_variables
                     ],
                 }
-                for containerDef in containerDefinitions
             ],
         },
+        tags=[
+            {"key": "ChallengeID", "value": f"{challenge_id}"},
+            {"key": "OwnerID", "value": f"{session.id}"},
+        ],
     )
 
     return task
@@ -530,7 +664,6 @@ class ECSChallengeType(BaseChallenge):
                 challenge_id=challenge.id, owner_id=get_current_team().id
             ).first()
         else:
-            print(get_current_user().__dict__)
             challengetracker = ECSChallengeTracker.query.filter_by(
                 challenge_id=challenge.id, owner_id=get_current_user().id
             ).first()
@@ -645,6 +778,7 @@ class ECSChallenge(Challenges):
     task_definition = db.Column(db.String(128), index=True)
     subnet = db.Column(db.String(128), index=True)
     security_group = db.Column(db.String(128), index=True)
+    entrypoint_container = db.Column(db.String(128), index=True)
 
 
 # API
@@ -733,6 +867,92 @@ class TaskAPI(Resource):
         return
 
 
+container_namespace = Namespace(
+    "container",
+    description="Fetch the containers for a given task definition",
+)
+
+
+@container_namespace.route("", methods=["GET"])
+class ContainerFetcher(Resource):
+    @authed_only
+    def get(self):
+        ecs = ECSConfig.query.filter_by(id=1).first()
+
+        ecs_client = boto3.client(
+            "ecs",
+            ecs.region,
+            aws_access_key_id=ecs.aws_access_key_id,
+            aws_secret_access_key=ecs.aws_secret_access_key,
+        )
+        taskDefinition = request.args.get("taskDef")
+
+        try:
+            containers = [
+                containerDef["name"]
+                for containerDef in ecs_client.describe_task_definition(
+                    taskDefinition=taskDefinition
+                )["taskDefinition"]["containerDefinitions"]
+            ]
+
+            return {"success": True, "data": containers}
+
+        except:
+            return {"success": False, "data": []}
+
+
+connect_namespace = Namespace(
+    "connect",
+    description="Allows users to retrieve a connection URL for the container to access it via Guacamole",
+)
+
+
+@connect_namespace.route("", methods=["GET"])
+class JWTFetcher(Resource):
+    @authed_only
+    def get(self):
+        ecs = ECSConfig.query.filter_by(id=1).first()
+
+        if ecs.guacamole_address is None:
+            return {"success": False, "data": []}
+
+        challenge_id = request.args.get("id")
+        challenge = ECSChallenge.query.filter_by(id=challenge_id).first()
+        if challenge is None:
+            return {"success": False, "data": []}
+
+        # Get the ECSChallengeTracker for this container
+
+        if is_teams_mode():
+            session = get_current_team()
+        else:
+            session = get_current_user()
+
+        container = ECSChallengeTracker.query.filter_by(
+            challenge_id=challenge_id, owner_id=session.id
+        ).first()
+        if container is None:
+            return {"success": False, "data": []}
+
+        # Identify the IP address of the container
+
+        address = get_address_of_task_container(
+            ecs, container.instance_id, challenge.entrypoint_container
+        )
+
+        if address is None:
+            return {"success": False, "data": []}
+
+        print(address)
+
+        # Create a JWT for this address to hand over to Guacamole
+
+        payload = guacamole.createJSON(session.id, address)
+        jwt = guacamole.encryptJWT(GUACAMOLE_JSON_SECRET_KEY, json.dumps(payload))
+
+        return {"success": True, "data": [ecs.guacamole_address, jwt.decode("UTF-8")]}
+
+
 active_ecs_namespace = Namespace(
     "ecs", description="Endpoint to retrieve User ECS Task Definition Status"
 )
@@ -808,8 +1028,8 @@ class ECSConfigAPI(Resource):
         ecs = ECSConfig.query.filter_by(id=1).first()
 
         if None not in [ecs.subnets, ecs.security_groups]:
-            subnets = ecs.subnets.split(",")
-            security_groups = ecs.security_groups.split(",")
+            subnets = json.loads(ecs.subnets)
+            security_groups = json.loads(ecs.security_groups)
 
             return {
                 "success": True,
@@ -828,5 +1048,7 @@ def load(app):
     CTFd_API_v1.add_namespace(ecs_namespace, "/ecs")
     CTFd_API_v1.add_namespace(ecs_config_namespace, "/ecs_config")
     CTFd_API_v1.add_namespace(task_namespace, "/task")
+    CTFd_API_v1.add_namespace(container_namespace, "/containers")
+    CTFd_API_v1.add_namespace(connect_namespace, "/connect")
     CTFd_API_v1.add_namespace(active_ecs_namespace, "/ecs_status")
     CTFd_API_v1.add_namespace(kill_task, "/nuke")

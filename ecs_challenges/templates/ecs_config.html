@@ -59,7 +59,7 @@
                     {% endif %}
                 </div>
 
-                <div class="form-group">
+                <!--<div class="form-group">
                     <label for="cluster-input">
                         ECS Cluster
                     </label>
@@ -70,13 +70,34 @@
                     <input class="form-control" type="text" name="cluster" id="cluster_input"
                         placeholder="Ex: my-cluster" />
                     {% endif %}
+                </div>-->
+
+                <div class="form-group">
+                    <label for="cluster-ss">
+                        Clusters
+                    </label>
+                    <select id='cluster-ss' name="cluster" class='form-control' size='10'>
+                        {% if form.clusters.choices[0][0] == "ERROR" %}
+                        <option value='False' disabled>{{ form.clusters.choices[0][1] }}</option>
+                        {% elif form.clusters %}
+                        {% for key,value in form.clusters.choices %}
+                        {% if key == cluster %}
+                        <option value='{{ key }}' selected>{{ value }}</option>
+                        {% else %}
+                        <option value='{{ key }}'>{{ value }}</option>
+                        {% endif %}
+                        {% endfor %}
+                        {% else %}
+                        <option value='False' disabled>Connect to AWS first</option>
+                        {% endif %}
+                    </select>
                 </div>
 
                 <div class="form-group">
-                    <label for="repo-ms">
+                    <label for="vps-ss">
                         VPC
                     </label>
-                    <select id='vpcs' name="active_vpc" class='form-control' size='10'>
+                    <select id='vps-ss' name="active_vpc" class='form-control' size='10'>
                         {% if form.vpcs.choices[0][0] == "ERROR" %}
                         <option value='False' disabled>{{ form.vpcs.choices[0][1] }}</option>
                         {% elif form.vpcs %}
@@ -94,25 +115,32 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="repo-ms">
-                        Repositories
+                    <label for="guacamole_json_secret_key-input">
+                        (Optional) Guacamole JSON Secret Key
                     </label>
-                    <select id='repositories' name="repositories" class='form-control' size='10' multiple>
-                        {% if form.repositories.choices[0][0] == "ERROR" %}
-                        <option value='False' disabled>{{ form.repositories.choices[0][1] }}</option>
-                        {% elif form.repositories %}
-                        {% for key,value in form.repositories.choices %}
-                        {% if key in repos %}
-                        <option value='{{ key }}' selected>{{ value }}</option>
-                        {% else %}
-                        <option value='{{ key }}'>{{ value }}</option>
-                        {% endif %}
-                        {% endfor %}
-                        {% else %}
-                        <option value='False' disabled>Connect to AWS first</option>
-                        {% endif %}
-                    </select>
+                    {% if config.guacamole_address %}
+                    <input class="form-control" type="text" name="guacamole_json_secret_key"
+                        id="guacamole_json_secret_key-input" placeholder="Ex: e2bbb098e9f3c4367dd6121e90df7ab9"
+                        value='{{ config.guacamole_json_secret_key }}' />
+                    {% else %}
+                    <input class="form-control" type="text" name="guacamole_json_secret_key"
+                        id="guacamole_json_secret_key" placeholder="Ex: e2bbb098e9f3c4367dd6121e90df7ab9" />
+                    {% endif %}
                 </div>
+
+                <div class="form-group">
+                    <label for="guacamole_address-input">
+                        (Optional) Guacamole Address
+                    </label>
+                    {% if config.guacamole_address %}
+                    <input class="form-control" type="text" name="guacamole_address" id="guacamole_address_input-input"
+                        placeholder="Ex: guacamole.example.com" value='{{ config.guacamole_address }}' />
+                    {% else %}
+                    <input class="form-control" type="text" name="guacamole_address" id="guacamole_address_input"
+                        placeholder="Ex: guacamole.example.com" />
+                    {% endif %}
+                </div>
+
                 {{ form.nonce() }}
                 <div class="col-md-13 text-center">
                     <button type="submit" tabindex="0" class="btn btn-md btn-primary btn-outlined">

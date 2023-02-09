@@ -9,13 +9,27 @@ CTFd.plugin.run((_CTFd) => {
             $("#taskdefinition_select").val(ECS_TASK_DEFINITION).change();
         });
 
-        $.getJSON("/api/v1/ecs_config", function (result) {
-            $.each(result['data']['subnets'], function (i, item) {
-                $("#subnet_select").append($("<option />").val(item).text(item));
-            });
-            $.each(result['data']['security_groups'], function (i, item) {
-                $("#security_group_select").append($("<option />").val(item).text(item));
-            });
+        fetch_containers();
+    });
+
+    $.getJSON("/api/v1/ecs_config", function (result) {
+        $.each(result['data']['subnets'], function (i, item) {
+            $("#subnet_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
+        });
+        $.each(result['data']['security_groups'], function (i, item) {
+            $("#security_group_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
         });
     });
 });
+
+function fetch_containers() {
+    $.getJSON("/api/v1/containers", { taskDef: $("#taskdefinition_select")[0].value }, function (result) {
+        if (result['success']) {
+            [...$("#entrypoint_container_select").children()].forEach(child => child.remove());
+
+            $.each(result['data'], function (i, item) {
+                $("#entrypoint_container_select").append($("<option />").val(item).text(item))
+            });
+        }
+    });
+}

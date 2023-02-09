@@ -50,7 +50,7 @@ function get_ecs_status(challenge) {
                     port = String(port)
                     //data = data + 'Host: ' + item.host + ' Port: ' + port + '<br />';
                 })
-                $('#ecs_container').html('<pre>ECS Task Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_revert_container"></div>');
+                $('#ecs_container').html('<pre>ECS Task Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_revert_container"></div>' + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_connect_to_container"></div>');
                 var countDownDate = new Date(parseInt(item.revert_time) * 1000).getTime();
                 var x = setInterval(function () {
                     var now = new Date().getTime();
@@ -65,6 +65,8 @@ function get_ecs_status(challenge) {
                         clearInterval(x);
                         $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").html('<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>');
                     }
+
+                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html('<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>');
                 }, 1000);
                 return false;
             };
@@ -85,6 +87,24 @@ function start_container(challenge) {
             });
             $(get_ecs_status(challenge));
         });
+}
+
+function connect_to_container(challenge) {
+    $.getJSON("/api/v1/connect", { 'id': challenge }, function (result) {
+        console.log(result);
+
+        if (result['success']) {
+            $.post(`http://${result['data'][0]}/guacamole/api/tokens`, { 'data': result['data'][1] }, function (auth) {
+                window.open(`http://${result['data'][0]}/guacamole/?token=${auth['authToken']}`, "_blank");
+            }, "json");
+        } else {
+            ezal({
+                title: "Attention!",
+                body: "Failed to connect to the container. Please try again shortly.",
+                button: "Got it!"
+            });
+        }
+    });
 }
 
 var modal =

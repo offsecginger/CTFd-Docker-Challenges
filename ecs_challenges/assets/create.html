@@ -14,13 +14,15 @@
         <i class="far fa-question-circle text-muted cursor-help" data-toggle="tooltip" data-placement="right"
             title="The ECS Task Definition for your challenge"></i>
     </label>
-    <select id="taskdefinition_select" name="task_definition" class="form-control" required></select>
+    <select id="taskdefinition_select" name="task_definition" class="form-control" required
+        onchange="fetch_containers()"></select>
+    <label for="entrypoint_container" id="entrypoint_container">Entrypoint Container (The container the user will
+        connect to):</label>
+    <select id="entrypoint_container_select" name="entrypoint_container" class="form-control"></select>
     <label for="subnet" id="subnet_label">Subnet:</label>
-    <!-- <input type="text" class="form-control" name="subnet" placeholder="Enter subnet" required> -->
     <select id="subnet_select" name="subnet" class="form-control" required></select>
     <label for="security_group" id="security_group_label">Security Group:</label>
     <select id="security_group_select" name="security_group" class="form-control" required></select>
-    <!-- <input type="text" class="form-control" name="security_group" placeholder="Enter security group" required> -->
 </div>
 {% endblock %}
 {% block type %}
