@@ -52,6 +52,9 @@ function get_ecs_status(challenge) {
                 })
                 $('#ecs_container').html('<pre>ECS Task Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_revert_container"></div>' + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_connect_to_container"></div>');
                 var countDownDate = new Date(parseInt(item.revert_time) * 1000).getTime();
+
+                let running = false;
+
                 var x = setInterval(function () {
                     var now = new Date().getTime();
                     var distance = countDownDate - now;
@@ -66,7 +69,18 @@ function get_ecs_status(challenge) {
                         $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").html('<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>');
                     }
 
-                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html('<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>');
+                    if (!running) {
+                        $.getJSON("/api/v1/task_status", { taskInst: item.instance_id }, function (result) {
+                            if (result['success']) {
+                                if (result['data'] == 'RUNNING') {
+                                    running = true;
+                                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html('<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>');
+                                } else {
+                                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html(`<span>Container Status: ${result['data']}</span>`)
+                                }
+                            }
+                        });
+                    }
                 }, 1000);
                 return false;
             };
@@ -75,6 +89,7 @@ function get_ecs_status(challenge) {
 };
 
 function start_container(challenge) {
+    running = false;
     $('#ecs_container').html('<div class="text-center"><i class="fas fa-circle-notch fa-spin fa-1x"></i></div>');
     $.get("/api/v1/task", { 'id': challenge }, function (result) {
         get_ecs_status(challenge);
