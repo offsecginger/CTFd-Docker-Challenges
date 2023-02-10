@@ -10,14 +10,16 @@ CTFd.plugin.run((_CTFd) => {
         });
 
         fetch_containers();
-    });
 
-    $.getJSON("/api/v1/ecs_config", function (result) {
-        $.each(result['data']['subnets'], function (i, item) {
-            $("#subnet_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
-        });
-        $.each(result['data']['security_groups'], function (i, item) {
-            $("#security_group_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
+        $.getJSON("/api/v1/ecs_config", function (result) {
+            $.each(result['data']['subnets'], function (i, item) {
+                $("#subnet_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
+            });
+            $("#subnet_select").val(ECS_SUBNET).change();
+            $.each(result['data']['security_groups'], function (i, item) {
+                $("#security_group_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
+            });
+            $("#security_group_select").val(ECS_SECURITY_GROUP).change();
         });
     });
 });
@@ -30,6 +32,8 @@ function fetch_containers() {
             $.each(result['data'], function (i, item) {
                 $("#entrypoint_container_select").append($("<option />").val(item).text(item))
             });
+
+            $("#entrypoint_container_select").val(ECS_ENTRYPOINT_CONTAINER).change();
         }
     });
 }

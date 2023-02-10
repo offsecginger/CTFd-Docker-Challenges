@@ -63,23 +63,38 @@ function get_ecs_status(challenge) {
                     if (seconds < 10) {
                         seconds = "0" + seconds
                     }
-                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").html('Next Revert Available in ' + minutes + ':' + seconds);
+                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").html('Able to reset container in ' + minutes + ':' + seconds);
                     if (distance < 0) {
                         clearInterval(x);
                         $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").html('<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>');
                     }
 
-                    if (!running) {
-                        $.getJSON("/api/v1/task_status", { taskInst: item.instance_id }, function (result) {
-                            if (result['success']) {
-                                if (result['data'] == 'RUNNING') {
-                                    running = true;
-                                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html('<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>');
-                                } else {
-                                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html(`<span>Container Status: ${result['data']}</span>`)
+                    if (item.guacamole) {
+                        if (!running) {
+                            $.getJSON("/api/v1/task_status", { taskInst: item.instance_id }, function (result) {
+                                if (result['success']) {
+                                    if (result['data'] == 'RUNNING') {
+                                        running = true;
+                                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html('<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>');
+                                    } else {
+                                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html(`<span>Container Status: ${result['data']}</span>`)
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
+                    } else {
+                        if (!running) {
+                            $.getJSON("/api/v1/task_status", { taskInst: item.instance_id }, function (result) {
+                                if (result['success']) {
+                                    if (result['data'] == 'RUNNING') {
+                                        running = true;
+                                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html(`<span>IP: ${result['public_ip']}</small>`);
+                                    } else {
+                                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html(`<span>Container Status: ${result['data']}</span>`)
+                                    }
+                                }
+                            });
+                        }
                     }
                 }, 1000);
                 return false;

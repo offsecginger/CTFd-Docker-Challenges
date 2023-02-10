@@ -92,7 +92,7 @@ from Crypto.Util.Padding import pad
 from base64 import b64encode
 
 
-GUACAMOLE_JSON_SECRET_KEY = os.environ["GUACAMOLE_JSON_SECRET_KEY"]
+GUACAMOLE_JSON_SECRET_KEY = os.environ.get("GUACAMOLE_JSON_SECRET_KEY")
 
 
 class guacamole:
@@ -223,9 +223,9 @@ def define_ecs_admin(app):
             )
             ecs.guacamole_address = request.form["guacamole_address"] or None
 
-            ecs.cluster = request.form.to_dict(flat=False).get("cluster")
+            ecs.cluster = request.form.to_dict(flat=False).get("cluster")[0]
 
-            ecs.active_vpc = request.form.to_dict(flat=False).get("active_vpc")
+            ecs.active_vpc = request.form.to_dict(flat=False).get("active_vpc")[0]
 
             # Fetch the subnets and security groups associated with this VPC
 
@@ -255,6 +255,7 @@ def define_ecs_admin(app):
         except:
             print(traceback.print_exc())
             vpcs = list()
+
         if len(vpcs) == 0:
             form.vpcs.choices = [("ERROR", "Failed to connect to AWS")]
         else:
@@ -263,22 +264,12 @@ def define_ecs_admin(app):
                 for d in vpcs
             ]
 
-        try:
-            active_vpc = ecs.active_vpc
-        except:
-            active_vpc = None
-
-        try:
-            cluster = ecs.cluster
-        except:
-            cluster = None
-
         return render_template(
             "ecs_config.html",
             config=ecs,
             form=form,
-            active_vpc=active_vpc,
-            cluster=cluster,
+            active_vpc=ecs.active_vpc,
+            cluster=ecs.cluster,
         )
 
     app.register_blueprint(admin_ecs_config)
@@ -391,9 +382,11 @@ def get_subnets(ecs, vpc):
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
-    subnets = filter(
-        lambda subnet: subnet["VpcId"] == vpc,
-        ec2_client.describe_subnets()["Subnets"],
+    subnets = list(
+        filter(
+            lambda subnet: subnet["VpcId"] == vpc,
+            ec2_client.describe_subnets()["Subnets"],
+        )
     )
 
     return [
@@ -415,9 +408,11 @@ def get_security_groups(ecs, vpc):
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
-    security_groups = filter(
-        lambda security_group: security_group["VpcId"] == vpc,
-        ec2_client.describe_security_groups()["SecurityGroups"],
+    security_groups = list(
+        filter(
+            lambda security_group: security_group["VpcId"] == vpc,
+            ec2_client.describe_security_groups()["SecurityGroups"],
+        )
     )
 
     return [{"value": sg["GroupId"], "name": sg["GroupName"]} for sg in security_groups]
@@ -433,20 +428,45 @@ def get_address_of_task_container(ecs, task, container_name):
 
     task = ecs_client.describe_tasks(cluster=ecs.cluster, tasks=[task])["tasks"][0]
 
-    containers = task["containers"]
+    if ecs.guacamole_address:
+        containers = task["containers"]
 
-    container = list(
-        filter(lambda container: container["name"] == container_name, containers)
-    )[0]
+        container = list(
+            filter(lambda container: container["name"] == container_name, containers)
+        )[0]
 
-    network_interfaces = container["networkInterfaces"]
+        network_interfaces = container["networkInterfaces"]
 
-    if len(network_interfaces) == 0:
-        return None
+        if len(network_interfaces) == 0:
+            return None
 
-    network_interface = network_interfaces[0]
+        network_interface = network_interfaces[0]
 
-    return network_interface["privateIpv4Address"]
+        return network_interface["privateIpv4Address"]
+    else:
+        attachments = task["attachments"]
+
+        eni = list(
+            filter(
+                lambda attachment: attachment["type"] == "ElasticNetworkInterface",
+                attachments,
+            )
+        )[0]
+
+        details = eni["details"]
+
+        eni_id = list(
+            filter(lambda detail: detail["name"] == "networkInterfaceId", details)
+        )[0]["value"]
+
+        eni = boto3.resource(
+            "ec2",
+            ecs.region,
+            aws_access_key_id=ecs.aws_access_key_id,
+            aws_secret_access_key=ecs.aws_secret_access_key,
+        ).NetworkInterface(eni_id)
+
+        return eni.association_attribute["PublicIp"]
 
 
 def stop_task(ecs, task_id):
@@ -500,7 +520,7 @@ def create_task(
         launchType="FARGATE",
         networkConfiguration={
             "awsvpcConfiguration": {
-                "assignPublicIp": "DISABLED",
+                "assignPublicIp": "DISABLED" if ecs.guacamole_address else "ENABLED",
                 "subnets": [subnet],
                 "securityGroups": [security_group],
             }
@@ -655,8 +675,6 @@ class ECSChallengeType(BaseChallenge):
 
         if challengetracker is None:
             return False, "Failed to find challenge task!"
-
-        print(challengetracker.flag)
 
         data = request.form or request.get_json()
         submission = data["submission"].strip()
@@ -845,7 +863,6 @@ class TaskAPI(Resource):
             flag=flag,
         )
 
-        print(flag)
         db.session.add(entry)
         db.session.commit()
         db.session.close()
@@ -882,6 +899,10 @@ class TaskStatus(Resource):
             instance_id=taskInstance
         ).first()
 
+        challenge = ECSChallenge.query.filter_by(
+            id=challenge_tracker.challenge_id
+        ).first()
+
         if not challenge_tracker:
             if challenge_tracker.owner_id != session.id:
                 return {"success": False, "data": []}
@@ -891,6 +912,13 @@ class TaskStatus(Resource):
             "data": ecs_client.describe_tasks(
                 cluster=ecs.cluster, tasks=[taskInstance]
             )["tasks"][0]["lastStatus"],
+            "public_ip": get_address_of_task_container(
+                ecs,
+                taskInstance,
+                challenge.entrypoint_container,
+            )
+            if not ecs.guacamole_address
+            else "",
         }
 
 
@@ -970,8 +998,6 @@ class JWTFetcher(Resource):
         if address is None:
             return {"success": False, "data": []}
 
-        print(address)
-
         # Create a JWT for this address to hand over to Guacamole
 
         payload = guacamole.createJSON(session.id, address)
@@ -994,6 +1020,8 @@ class ECSStatus(Resource):
 
     @authed_only
     def get(self):
+        ecs = ECSConfig.query.first()
+
         if is_teams_mode():
             session = get_current_team()
             tracker = ECSChallengeTracker.query.filter_by(owner_id=session.id)
@@ -1002,6 +1030,8 @@ class ECSStatus(Resource):
             tracker = ECSChallengeTracker.query.filter_by(owner_id=session.id)
         data = list()
         for i in tracker:
+            challenge = ECSChallenge.query.filter_by(id=i.challenge_id).first()
+
             data.append(
                 {
                     "id": i.id,
@@ -1010,7 +1040,7 @@ class ECSStatus(Resource):
                     "timestamp": i.timestamp,
                     "revert_time": i.revert_time,
                     "instance_id": i.instance_id,
-                    "ports": i.ports.split(","),
+                    "guacamole": bool(ecs.guacamole_address),
                 }
             )
         return {"success": True, "data": data}
@@ -1057,8 +1087,6 @@ class ECSConfigAPI(Resource):
         if None not in [ecs.subnets, ecs.security_groups]:
             subnets = json.loads(ecs.subnets)
             security_groups = json.loads(ecs.security_groups)
-
-            print(f"ECS Subnets: {ecs.subnets}")
 
             return {
                 "success": True,
