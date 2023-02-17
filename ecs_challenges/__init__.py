@@ -1136,9 +1136,6 @@ def load(app):
     if "GUACAMOLE_JSON_SECRET_KEY" in os.environ.keys():
         ecs.guacamole_json_secret_key = os.environ["GUACAMOLE_JSON_SECRET_KEY"]
 
-    if "GUACAMOLE_JSON_SECRET_KEY" in os.environ.keys():
-        ecs.guacamole_json_secret_key = os.environ["GUACAMOLE_JSON_SECRET_KEY"]
-
     if "GUACAMOLE_ADDRESS" in os.environ.keys():
         ecs.guacamole_address = os.environ["GUACAMOLE_ADDRESS"]
 

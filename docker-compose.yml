@@ -47,27 +47,6 @@ services:
     - .data/redis:/data
     networks:
         internal:
-  
-  guacd:
-    image: guacamole/guacd
-    restart: unless-stopped
-    networks:
-      internal:
-    
-  guacamole:
-    image: guacamole/guacamole
-    restart: unless-stopped
-    networks:
-      default:
-      internal:
-    ports:
-      - 3000:8080
-    environment:
-      - MYSQL_HOSTNAME=db
-      - MYSQL_DATABASE=guac
-      - MYSQL_USER=ctfd
-      - MYSQL_PASSWORD=ctfd
-      - GUACD_HOSTNAME=guacd
 
 networks:
     default:
