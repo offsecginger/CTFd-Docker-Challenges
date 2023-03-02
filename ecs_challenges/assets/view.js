@@ -124,8 +124,8 @@ function connect_to_container(challenge) {
         console.log(result);
 
         if (result['success']) {
-            $.post(`http://${result['data'][0]}/guacamole/api/tokens`, { 'data': result['data'][1] }, function (auth) {
-                window.open(`http://${result['data'][0]}/guacamole/?token=${auth['authToken']}`, "_blank");
+            $.post(`://${result['data'][0]}/guacamole/api/tokens`, { 'data': result['data'][1] }, function (auth) {
+                window.open(`://${result['data'][0]}/guacamole/?token=${auth['authToken']}`, "_blank");
             }, "json");
         } else {
             ezal({
