@@ -812,7 +812,10 @@ class TaskAPI(Resource):
                     int(session.id) == int(i.owner_id)
                     and (unix_time(datetime.utcnow()) - int(i.timestamp)) >= 7200
                 ):
-                    stop_task(ecs, i.instance_id)
+                    try:
+                        stop_task(ecs, i.instance_id)
+                    except:
+                        pass
                     ECSChallengeTracker.query.filter_by(
                         instance_id=i.instance_id
                     ).delete()
@@ -832,15 +835,9 @@ class TaskAPI(Resource):
         # The exception would be if we are reverting a box. So we'll delete it if it exists and has been around for more than 5 minutes.
         elif check != None:
             stop_task(ecs, check.instance_id)
-            if is_teams_mode():
-                ECSChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
-                    challenge_id=challenge.id
-                ).delete()
-            else:
-                ECSChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
-                    challenge_id=challenge.id
-                ).delete()
-            db.session.commit()
+            ECSChallengeTracker.query.filter_by(owner_id=session.id).filter_by(
+                challenge_id=challenge.id
+            ).delete()
         # portsbl = get_unavailable_ports(docker)
         flag = "".join(random.choices(string.ascii_uppercase + string.digits, k=128))
         create = create_task(
