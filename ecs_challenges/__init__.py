@@ -312,12 +312,18 @@ class KillTaskAPI(Resource):
         ecs_tracker = ECSChallengeTracker.query.all()
         if full == "true":
             for c in ecs_tracker:
-                stop_task(ecs_config, c.instance_id)
+                try:
+                    stop_task(ecs_config, c.instance_id)
+                except:
+                    pass
                 ECSChallengeTracker.query.filter_by(instance_id=c.instance_id).delete()
                 db.session.commit()
 
         elif task != "null" and task in [c.instance_id for c in ecs_tracker]:
-            stop_task(ecs_config, task)
+            try:
+                stop_task(ecs_config, task)
+            except:
+                pass
             ECSChallengeTracker.query.filter_by(instance_id=task).delete()
             db.session.commit()
 
@@ -812,10 +818,7 @@ class TaskAPI(Resource):
                     int(session.id) == int(i.owner_id)
                     and (unix_time(datetime.utcnow()) - int(i.timestamp)) >= 7200
                 ):
-                    try:
-                        stop_task(ecs, i.instance_id)
-                    except:
-                        pass
+                    stop_task(ecs, i.instance_id)
                     ECSChallengeTracker.query.filter_by(
                         instance_id=i.instance_id
                     ).delete()
