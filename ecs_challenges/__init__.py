@@ -119,7 +119,7 @@ class guacamole:
                     "protocol": "ssh",
                     "parameters": {
                         "hostname": IP_ADDRESS.strip(),
-                        "username": "root",
+                        "username": "punk",
                         "private-key": os.environ["GUACAMOLE_SSH_PRIVATE_KEY"],
                         "port": 22,
                         "proxy_hostname": "localhost",
