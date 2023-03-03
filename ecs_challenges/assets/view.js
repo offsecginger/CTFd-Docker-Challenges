@@ -1,6 +1,6 @@
 CTFd._internal.challenge.data = undefined
 
-CTFd._internal.challenge.renderer = CTFd.lib.markdown();
+CTFd._internal.challenge.renderer = null;
 
 
 CTFd._internal.challenge.preRender = function () { }
