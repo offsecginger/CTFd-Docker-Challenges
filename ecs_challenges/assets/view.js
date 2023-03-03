@@ -116,7 +116,7 @@ function connect_to_container(challenge) {
         console.log(result);
 
         if (result['success']) {
-            fetch(`${window.location.protocol}//${result['data'][0]}/guacamole/api/tokens`, { method: 'POST', body: JSON.stringify({ 'data': result['data'][1] }) }).then(result => result.json()).then(auth => {
+            fetch(`${window.location.protocol}//${result['data'][0]}/guacamole/api/tokens`, { method: 'POST', headers: { "Content-Type": "application/json" }, body: JSON.stringify({ 'data': result['data'][1] }) }).then(result => result.json()).then(auth => {
                 window.open(`${window.location.protocol}//${result['data'][0]}/guacamole/?token=${auth['authToken']}`, "_blank");
             });
         } else {
