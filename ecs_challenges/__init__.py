@@ -520,6 +520,8 @@ def create_task(
         for idx, flag in enumerate(flags)
     ]
 
+    environment_variables.append(("SSH_KEY", os.environ.get("CONTAINER_SSH_PUBLIC_KEY", "")))
+
     task = ecs_client.run_task(
         cluster=ecs.cluster,
         taskDefinition=task_definition,
