@@ -37,16 +37,12 @@ CTFd._internal.challenge.submit = function (preview) {
 };
 
 function get_ecs_status(challenge) {
-    $.get("/api/v1/ecs_status", function (result) {
-        $.each(result['data'], function (i, item) {
+    fetch("/api/v1/ecs_status").then(result => result.json()).then(result => {
+        result['data'].forEach((item, i) => {
             if (item.challenge_id == challenge) {
                 var ports = String(item.ports).split(',');
                 var data = '';
-                $.each(ports, function (x, port) {
-                    port = String(port)
-                    //data = data + 'Host: ' + item.host + ' Port: ' + port + '<br />';
-                })
-                $('#ecs_container').html('<pre>ECS Task Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_revert_container"></div>' + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_connect_to_container"></div>');
+                document.querySelector('#ecs_container').innerHTML = '<pre>ECS Task Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_revert_container"></div>' + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_connect_to_container"></div>';
                 var countDownDate = new Date(parseInt(item.revert_time) * 1000).getTime();
 
                 let running = false;
@@ -59,34 +55,34 @@ function get_ecs_status(challenge) {
                     if (seconds < 10) {
                         seconds = "0" + seconds
                     }
-                    $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").html('Able to reset container in ' + minutes + ':' + seconds);
+                    document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").innerHTML = 'Able to reset container in ' + minutes + ':' + seconds;
                     if (distance < 0) {
                         clearInterval(x);
-                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").html('<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>');
+                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").innerHTML = '<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>';
                     }
 
                     if (item.guacamole) {
                         if (!running) {
-                            $.getJSON("/api/v1/task_status", { taskInst: item.instance_id }, function (result) {
+                            fetch(`/api/v1/task_status?${new URLSearchParams({ taskInst: item.instance_id })}`).then(result => result.json()).then(result => {
                                 if (result['success']) {
                                     if (result['data'] == 'RUNNING') {
                                         running = true;
-                                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html('<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>');
+                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = '<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>';
                                     } else {
-                                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html(`<span>Container Status: ${result['data']}</span>`)
+                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>Container Status: ${result['data']}</span>`;
                                     }
                                 }
                             });
                         }
                     } else {
                         if (!running) {
-                            $.getJSON("/api/v1/task_status", { taskInst: item.instance_id }, function (result) {
+                            fetch(`/api/v1/task_status?${new URLSearchParams({ taskInst: item.instance_id })}`).then(result => result.json()).then(result => {
                                 if (result['success']) {
                                     if (result['data'] == 'RUNNING') {
                                         running = true;
-                                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html(`<span>IP: ${result['public_ip']}</small>`);
+                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>IP: ${result['public_ip']}</small>`;
                                     } else {
-                                        $("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").html(`<span>Container Status: ${result['data']}</span>`)
+                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>Container Status: ${result['data']}</span>`;
                                     }
                                 }
                             });
@@ -101,28 +97,28 @@ function get_ecs_status(challenge) {
 
 function start_container(challenge) {
     running = false;
-    $('#ecs_container').html('<div class="text-center"><i class="fas fa-circle-notch fa-spin fa-1x"></i></div>');
-    $.get("/api/v1/task", { 'id': challenge }, function (result) {
-        get_ecs_status(challenge);
-    })
-        .fail(function (jqxhr, settings, ex) {
-            ezal({
+    document.querySelector('#ecs_container').innerHTML = '<div class="text-center"><i class="fas fa-circle-notch fa-spin fa-1x"></i></div>';
+    fetch(`/api/v1/task?${new URLSearchParams({ 'id': challenge })}`).then(result => {
+        if (!result.ok) {
+            /*ezal({
                 title: "Attention!",
                 body: "You can only revert a container once per 5 minutes! Please be patient.",
                 button: "Got it!"
-            });
-            $(get_ecs_status(challenge));
-        });
+            });*/
+        }
+
+        get_ecs_status(challenge);
+    })
 }
 
 function connect_to_container(challenge) {
-    $.getJSON("/api/v1/connect", { 'id': challenge }, function (result) {
+    fetch(`/api/v1/connect?${new URLSearchParams({ 'id': challenge })}`).then(result => result.json()).then(result => {
         console.log(result);
 
         if (result['success']) {
-            $.post(`${window.location.protocol}//${result['data'][0]}/guacamole/api/tokens`, { 'data': result['data'][1] }, function (auth) {
+            fetch(`${window.location.protocol}//${result['data'][0]}/guacamole/api/tokens`, { method: 'POST', post: JSON.stringify({ 'data': result['data'][1] }) }).then(result => result.json()).then(auth => {
                 window.open(`${window.location.protocol}//${result['data'][0]}/guacamole/?token=${auth['authToken']}`, "_blank");
-            }, "json");
+            });
         } else {
             ezal({
                 title: "Attention!",
@@ -154,16 +150,18 @@ var modal =
 
 function ezal(args) {
     var res = modal.format(args.title, args.body);
-    var obj = $(res);
+    var temp = document.createElement('div');
+    temp.innerHTML = res;
+    var obj = res.firstChild;
     var button = '<button type="button" class="btn btn-primary" data-dismiss="modal">{0}</button>'.format(
         args.button
     );
     obj.find(".modal-footer").append(button);
-    $("main").append(obj);
+    document.querySelector("main").append(obj);
 
     obj.modal("show");
 
-    $(obj).on("hidden.bs.modal", function (e) {
+    obj.on("hidden.bs.modal", function (e) {
         $(this).modal("dispose");
     });
 

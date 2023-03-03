@@ -17,10 +17,10 @@
 {% endblock %}
 {% block input %}
 <input id="challenge-id" class="challenge-id" type="hidden" value="{{ challenge.id }}">
-<input id="challenge-input" class="challenge-input" type="text" name="answer" placeholder="Flag" />
+<input id="challenge-input" class="challenge-input form-control" type="text" name="answer" placeholder="Flag" />
 {% endblock %}
 {% block submit %}
-<button id="challenge-submit" class="challenge-submit" type="submit">
+<button id="challenge-submit" class="challenge-submit form-control" type="submit">
     Submit
 </button>
 {% endblock %}
