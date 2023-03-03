@@ -5,11 +5,7 @@ CTFd._internal.challenge.renderer = null;
 
 CTFd._internal.challenge.preRender = function () { }
 
-CTFd._internal.challenge.render = function (markdown) {
-
-    return CTFd._internal.challenge.renderer.render(markdown)
-}
-
+CTFd._internal.challenge.render = null
 
 CTFd._internal.challenge.postRender = function () { }
 
@@ -41,6 +37,7 @@ CTFd._internal.challenge.submit = function (preview) {
 };
 
 function get_ecs_status(challenge) {
+    let $ = CTFd.lib.$;
     $.get("/api/v1/ecs_status", function (result) {
         $.each(result['data'], function (i, item) {
             if (item.challenge_id == challenge) {
@@ -104,6 +101,7 @@ function get_ecs_status(challenge) {
 };
 
 function start_container(challenge) {
+    let $ = CTFd.lib.$;
     running = false;
     $('#ecs_container').html('<div class="text-center"><i class="fas fa-circle-notch fa-spin fa-1x"></i></div>');
     $.get("/api/v1/task", { 'id': challenge }, function (result) {
@@ -120,6 +118,7 @@ function start_container(challenge) {
 }
 
 function connect_to_container(challenge) {
+    let $ = CTFd.lib.$;
     $.getJSON("/api/v1/connect", { 'id': challenge }, function (result) {
         console.log(result);
 
@@ -157,6 +156,7 @@ var modal =
     "</div>";
 
 function ezal(args) {
+    let $ = CTFd.lib.$;
     var res = modal.format(args.title, args.body);
     var obj = $(res);
     var button = '<button type="button" class="btn btn-primary" data-dismiss="modal">{0}</button>'.format(
