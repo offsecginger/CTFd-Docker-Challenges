@@ -20,6 +20,8 @@ CTFd.plugin.run((_CTFd) => {
                 $("#security_group_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
             });
             $("#security_group_select").val(ECS_SECURITY_GROUP).change();
+
+            $("#launch_type_select").val(ECS_LAUNCH_TYPE).change();
         });
     });
 });

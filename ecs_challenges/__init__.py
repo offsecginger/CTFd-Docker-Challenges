@@ -8,6 +8,7 @@ from CTFd.plugins.flags import get_flag_class
 from CTFd.utils.user import get_ip
 from CTFd.utils.uploads import delete_file
 from CTFd.plugins import register_plugin_assets_directory, bypass_csrf_protection
+from CTFd.plugins.migrations import upgrade
 from CTFd.schemas.tags import TagSchema
 from CTFd.models import (
     db,
@@ -487,6 +488,26 @@ def stop_task(ecs, task_id):
         cluster=ecs.cluster, task=task_id, reason="Stopped by ECS CTFd Plugin"
     )
 
+    task = ecs_client.describe_tasks(tasks=[task_id], cluster=ecs.cluster)["tasks"][0]
+
+    print("Here")
+    if "containerInstanceArn" in task.keys():
+        print("Here2")
+        container_instance = ecs_client.describe_container_instances(
+            containerInstances=[task["containerInstanceArn"]], cluster=ecs.cluster
+        )["containerInstances"][0]
+
+        ec2_client = boto3.client(
+            "ec2",
+            region_name=ecs.region,
+            aws_access_key_id=ecs.aws_access_key_id,
+            aws_secret_access_key=ecs.aws_secret_access_key,
+        )
+
+        ec2_client.terminate_instances(
+            InstanceIds=[container_instance["ec2InstanceId"]]
+        )
+
 
 def create_task(
     ecs, task_definition, subnet, security_group, challenge_id, random_flag
@@ -520,12 +541,14 @@ def create_task(
         for idx, flag in enumerate(flags)
     ]
 
-    environment_variables.append(("SSH_KEY", os.environ.get("CONTAINER_SSH_PUBLIC_KEY", "")))
+    environment_variables.append(
+        ("SSH_KEY", os.environ.get("CONTAINER_SSH_PUBLIC_KEY", ""))
+    )
 
     task = ecs_client.run_task(
         cluster=ecs.cluster,
         taskDefinition=task_definition,
-        launchType="FARGATE",
+        launchType="FARGATE" if challenge.launch_type == "fargate" else "EC2",
         networkConfiguration={
             "awsvpcConfiguration": {
                 "assignPublicIp": "DISABLED" if ecs.guacamole_address else "ENABLED",
@@ -548,6 +571,9 @@ def create_task(
             {"key": "ChallengeID", "value": f"{challenge_id}"},
             {"key": "OwnerID", "value": f"{session.id}"},
         ],
+        placementConstraints=[{"type": "distinctInstance"}]
+        if challenge.launch_type == "ec2"
+        else [],
     )
 
     return task
@@ -634,6 +660,7 @@ class ECSChallengeType(BaseChallenge):
             "type": challenge.type,
             "subnet": challenge.subnet,
             "security_group": challenge.security_group,
+            "launch_type": challenge.launch_type,
             "type_data": {
                 "id": ECSChallengeType.id,
                 "name": ECSChallengeType.name,
@@ -652,6 +679,11 @@ class ECSChallengeType(BaseChallenge):
         :return:
         """
         data = request.form or request.get_json()
+        valid_launch_types = ["ec2", "fargate"]
+        if data["launch_type"] not in valid_launch_types:
+            raise ValidationError(
+                f"launch_type parameter malformed! Expected one of {valid_launch_types}, got `{data['launch_type']}`"
+            )
         challenge = ECSChallenge(**data)
         db.session.add(challenge)
         db.session.commit()
@@ -694,7 +726,7 @@ class ECSChallengeType(BaseChallenge):
                 data = flag.data
 
                 if len(saved) != len(submission):
-                    return False
+                    return False, "Incorrect"
                 result = 0
 
                 if data == "case_insensitive":
@@ -727,29 +759,26 @@ class ECSChallengeType(BaseChallenge):
         data = request.form or request.get_json()
         submission = data["submission"].strip()
         ecs = ECSConfig.query.filter_by(id=1).first()
-        try:
-            if is_teams_mode():
-                ecs_task = (
-                    ECSChallengeTracker.query.filter_by(
-                        task_definition=challenge.task_definition
-                    )
-                    .filter_by(owner_id=team.id)
-                    .first()
+
+        if is_teams_mode():
+            ecs_task = (
+                ECSChallengeTracker.query.filter_by(
+                    task_definition=challenge.task_definition
                 )
-            else:
-                ecs_task = (
-                    ECSChallengeTracker.query.filter_by(
-                        task_definition=challenge.task_definition
-                    )
-                    .filter_by(owner_id=user.id)
-                    .first()
+                .filter_by(owner_id=team.id)
+                .first()
+            )
+        else:
+            ecs_task = (
+                ECSChallengeTracker.query.filter_by(
+                    task_definition=challenge.task_definition
                 )
-            stop_task(ecs, ecs_task.instance_id)
-            ECSChallengeTracker.query.filter_by(
-                instance_id=ecs_task.instance_id
-            ).delete()
-        except:
-            pass
+                .filter_by(owner_id=user.id)
+                .first()
+            )
+        stop_task(ecs, ecs_task.instance_id)
+        ECSChallengeTracker.query.filter_by(instance_id=ecs_task.instance_id).delete()
+
         solve = Solves(
             user_id=user.id,
             team_id=team.id if team else None,
@@ -790,6 +819,7 @@ class ECSChallenge(Challenges):
     subnet = db.Column(db.String(128), index=True)
     security_group = db.Column(db.String(128), index=True)
     entrypoint_container = db.Column(db.String(128), index=True)
+    launch_type = db.Column(db.String(32))
 
 
 # API
@@ -873,7 +903,7 @@ class TaskAPI(Resource):
 
 task_status_namespace = Namespace(
     "task_status",
-    description="Get the status (Provisioning, Pending, Running, etc) of a task.",
+    description="Get the health status (Unknown, Unhealthy, Healthy) of a task.",
 )
 
 
@@ -909,11 +939,20 @@ class TaskStatus(Resource):
             if challenge_tracker.owner_id != session.id:
                 return {"success": False, "data": []}
 
+        task = ecs_client.describe_tasks(cluster=ecs.cluster, tasks=[taskInstance])[
+            "tasks"
+        ][0]
+
+        container = list(
+            filter(
+                lambda container: container["name"] == challenge.entrypoint_container,
+                task["containers"],
+            )
+        )[0]
+
         return {
             "success": True,
-            "data": ecs_client.describe_tasks(
-                cluster=ecs.cluster, tasks=[taskInstance]
-            )["tasks"][0]["lastStatus"],
+            "data": container["healthStatus"],
             "public_ip": get_address_of_task_container(
                 ecs,
                 taskInstance,
@@ -1099,7 +1138,8 @@ class ECSConfigAPI(Resource):
 
 
 def load(app):
-    app.db.create_all()
+    upgrade(plugin_name="ecs_challenges")
+
     CHALLENGE_CLASSES["ecs"] = ECSChallengeType
     register_plugin_assets_directory(app, base_path="/plugins/ecs_challenges/assets")
     define_ecs_admin(app)

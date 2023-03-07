@@ -15,8 +15,8 @@ CTFd._internal.challenge.submit = function (preview) {
     var submission = CTFd.lib.$('#challenge-input').val()
 
     var body = {
-        'challenge_id': challenge_id,
-        'submission': submission,
+        challenge_id: challenge_id,
+        submission: submission,
     }
     var params = {}
     if (preview) {
@@ -65,11 +65,11 @@ function get_ecs_status(challenge) {
                         if (!running) {
                             fetch(`/api/v1/task_status?${new URLSearchParams({ taskInst: item.instance_id })}`).then(result => result.json()).then(result => {
                                 if (result['success']) {
-                                    if (result['data'] == 'RUNNING') {
+                                    if (result['data'] == 'HEALTHY') {
                                         running = true;
                                         document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = '<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>';
                                     } else {
-                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>Container Status: ${result['data']}</span>`;
+                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>Container Status: ${result['data'] == 'UNKNOWN' ? 'STARTING' : result[data]}</span>`;
                                     }
                                 }
                             });
@@ -78,11 +78,11 @@ function get_ecs_status(challenge) {
                         if (!running) {
                             fetch(`/api/v1/task_status?${new URLSearchParams({ taskInst: item.instance_id })}`).then(result => result.json()).then(result => {
                                 if (result['success']) {
-                                    if (result['data'] == 'RUNNING') {
+                                    if (result['data'] == 'HEALTHY') {
                                         running = true;
                                         document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>IP: ${result['public_ip']}</small>`;
                                     } else {
-                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>Container Status: ${result['data']}</span>`;
+                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>Container Status: ${result['data'] == 'UNKNOWN' ? 'STARTING' : result[data]}</span>`;
                                     }
                                 }
                             });

@@ -10,6 +10,11 @@
     <input type="text" class="form-control" name="category" placeholder="Enter challenge category">
 </div>
 <div class="form-group">
+    <label for="launch_type_select" id="launch_type_label">Launch Type:</label>
+    <select id="launch_type_select" name="launch_type" class="form-control" required>
+        <option value="fargate">FARGATE</option>
+        <option value="ec2">EC2</option>
+    </select>
     <label for="TaskDefinition" id='taskdefinition_label'>Task Definition:
         <i class="far fa-question-circle text-muted cursor-help" data-toggle="tooltip" data-placement="right"
             title="The ECS Task Definition for your challenge"></i>

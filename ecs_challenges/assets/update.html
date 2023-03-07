@@ -8,6 +8,11 @@
     <input type="text" class="form-control chal-category" name="category" value="{{ challenge.category }}">
 </div>
 <div class="form-group">
+    <label for="launch_type_select" id="launch_type_label">Launch Type:</label>
+    <select id="launch_type_select" name="launch_type" class="form-control" required>
+        <option value="fargate">FARGATE</option>
+        <option value="ec2">EC2</option>
+    </select>
     <label for="TaskDefinition" id='taskdefinition_label'>Task Definition:
         <i class="far fa-question-circle text-muted cursor-help" data-toggle="tooltip" data-placement="right"
             title="The ECS Task Definition for your challenge"></i>
@@ -29,5 +34,6 @@
     var ECS_SUBNET = '{{ challenge.subnet }}';
     var ECS_SECURITY_GROUP = '{{ challenge.security_group }}';
     var ECS_ENTRYPOINT_CONTAINER = '{{ challenge.entrypoint_container }}';
+    var ECS_LAUNCH_TYPE = '{{ challenge.launch_type }}';
 </script>
 {% endblock %}
