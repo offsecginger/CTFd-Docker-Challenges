@@ -175,6 +175,16 @@ class ECSChallengeTracker(db.Model):
     flag = db.Column("flag", db.String(128), index=True)
 
 
+class ECSChallenge(Challenges):
+    __mapper_args__ = {"polymorphic_identity": "ecs"}
+    id = db.Column(None, db.ForeignKey("challenges.id"), primary_key=True)
+    task_definition = db.Column(db.String(128), index=True)
+    subnets = db.Column(db.Text)
+    security_group = db.Column(db.String(128), index=True)
+    entrypoint_container = db.Column(db.String(128), index=True)
+    launch_type = db.Column(db.String(32))
+
+
 class ECSConfigForm(BaseForm):
     id = HiddenField()
     aws_access_key_id = StringField(
@@ -510,7 +520,7 @@ def stop_task(ecs, task_id):
 
 
 def create_task(
-    ecs, task_definition, subnet, security_group, challenge_id, random_flag
+    ecs, task_definition, subnets, security_group, challenge_id, random_flag
 ):
     ecs_client = boto3.client(
         "ecs",
@@ -552,7 +562,7 @@ def create_task(
         networkConfiguration={
             "awsvpcConfiguration": {
                 "assignPublicIp": "DISABLED" if ecs.guacamole_address else "ENABLED",
-                "subnets": [subnet],
+                "subnets": subnets,
                 "securityGroups": [security_group],
             }
         },
@@ -611,6 +621,10 @@ class ECSChallengeType(BaseChallenge):
         :return:
         """
         data = request.form or request.get_json()
+        # data["subnets"] = json.dumps(request.form.getlist("subnets_select"))
+        if "subnets" in data.keys():
+            data["subnets"] = json.dumps(data["subnets"])
+        print(data)
         for attr, value in data.items():
             setattr(challenge, attr, value)
 
@@ -658,7 +672,7 @@ class ECSChallengeType(BaseChallenge):
             "state": challenge.state,
             "max_attempts": challenge.max_attempts,
             "type": challenge.type,
-            "subnet": challenge.subnet,
+            "subnets": challenge.subnets,
             "security_group": challenge.security_group,
             "launch_type": challenge.launch_type,
             "type_data": {
@@ -684,6 +698,8 @@ class ECSChallengeType(BaseChallenge):
             raise ValidationError(
                 f"launch_type parameter malformed! Expected one of {valid_launch_types}, got `{data['launch_type']}`"
             )
+        if "subnets" in data.keys():
+            data["subnets"] = json.dumps(data["subnets"])
         challenge = ECSChallenge(**data)
         db.session.add(challenge)
         db.session.commit()
@@ -812,16 +828,6 @@ class ECSChallengeType(BaseChallenge):
         db.session.commit()
 
 
-class ECSChallenge(Challenges):
-    __mapper_args__ = {"polymorphic_identity": "ecs"}
-    id = db.Column(None, db.ForeignKey("challenges.id"), primary_key=True)
-    task_definition = db.Column(db.String(128), index=True)
-    subnet = db.Column(db.String(128), index=True)
-    security_group = db.Column(db.String(128), index=True)
-    entrypoint_container = db.Column(db.String(128), index=True)
-    launch_type = db.Column(db.String(32))
-
-
 # API
 task_namespace = Namespace("task", description="Endpoint to interact with tasks")
 
@@ -874,11 +880,11 @@ class TaskAPI(Resource):
                 challenge_id=challenge.id
             ).delete()
         # portsbl = get_unavailable_ports(docker)
-        flag = "".join(random.choices(string.ascii_uppercase + string.digits, k=128))
+        flag = "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
         create = create_task(
             ecs,
             challenge.task_definition,
-            challenge.subnet,
+            json.loads(challenge.subnets),
             challenge.security_group,
             challenge_id,
             flag,

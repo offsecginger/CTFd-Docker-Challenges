@@ -22,8 +22,8 @@
     <label for="entrypoint_container" id="entrypoint_container">Entrypoint Container (The container the user will
         connect to):</label>
     <select id="entrypoint_container_select" name="entrypoint_container" class="form-control"></select>
-    <label for="subnet" id="subnet_label">Subnet:</label>
-    <select id="subnet_select" name="subnet" class="form-control" required></select>
+    <label for="subnets" id="subnets_label">Subnet:</label>
+    <select id="subnets_select" name="subnets" class="form-control" required multiple size="6"></select>
     <label for="security_group" id="security_group_label">Security Group:</label>
     <select id="security_group_select" name="security_group" class="form-control" required></select>
 </div>
@@ -31,7 +31,7 @@
 {% block footer %}
 <script>
     var ECS_TASK_DEFINITION = '{{ challenge.task_definition }}';
-    var ECS_SUBNET = '{{ challenge.subnet }}';
+    var ECS_SUBNETS = {{ challenge.subnets | safe }};
     var ECS_SECURITY_GROUP = '{{ challenge.security_group }}';
     var ECS_ENTRYPOINT_CONTAINER = '{{ challenge.entrypoint_container }}';
     var ECS_LAUNCH_TYPE = '{{ challenge.launch_type }}';

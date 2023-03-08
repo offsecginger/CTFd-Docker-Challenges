@@ -13,9 +13,10 @@ CTFd.plugin.run((_CTFd) => {
 
         $.getJSON("/api/v1/ecs_config", function (result) {
             $.each(result['data']['subnets'], function (i, item) {
-                $("#subnet_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
+                $("#subnets_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
             });
-            $("#subnet_select").val(ECS_SUBNET).change();
+            ECS_SUBNETS.forEach(v => document.querySelector(`option[value=${v}`).selected = true)
+
             $.each(result['data']['security_groups'], function (i, item) {
                 $("#security_group_select").append($("<option />").val(item['value']).text(item['value'] + (item['name'] ? ` [${item['name']}]` : "")));
             });
@@ -38,4 +39,29 @@ function fetch_containers() {
             $("#entrypoint_container_select").val(ECS_ENTRYPOINT_CONTAINER).change();
         }
     });
+}
+
+$.fn.serializeJSON = function () {
+    let target = this[0];
+
+    // First we just recursively get all children of the target
+
+    function getChildren(t) {
+        let children = [...t.children];
+
+        let leaves = children.filter(child => child.children.length == 0);
+        let nodes = children.filter(child => child.children.length);
+
+        return leaves.concat(nodes.reduce((acc, c) => acc.concat(c.tagName == 'SELECT' ? c : getChildren(c)), []))
+    }
+
+    // Get the input and select elements and their values
+
+    return getChildren(target)
+        .filter(elem => elem.tagName == 'INPUT' || elem.tagName == "SELECT")
+        .reduce(
+            (acc, c) => (acc[c.name] = c.multiple ? [...c.options]
+                .filter(x => x.selected)
+                .map(x => x.value) : c.value, acc), {}
+        );
 }
