@@ -6,8 +6,8 @@
     </div>
 </div>
 <div class="container">
-    <div class="row">
-        <div class="col-md-6 offset-md-3">
+    <div class="row" style="align-items: center;">
+        <div>
             {% for error in errors %}
             <div class="alert alert-danger alert-dismissable" role="alert">
                 <span class="sr-only">Error:</span>
@@ -21,10 +21,12 @@
                 <thead>
                     <tr>
                         <th width="10px" class="text-center" style="cursor: pointer;" onclick="sortTable(0)">ID</th>
-                        <th class="text-left" style="cursor: pointer;" onclick="sortTable(1)">Owner</th>
-                        <th class="text-left" style="cursor: pointer;" onclick="sortTable(2)">ECS Task Definition</th>
-                        <th class="text-left" style="cursor: pointer;" onclick="sortTable(3)">Instance ID</th>
-                        <th class="text-left">Revoke</th>
+                        <th class="text-center" style="cursor: pointer;" onclick="sortTable(1)">Owner ID</th>
+                        <th class="text-center" style="cursor: pointer;" onclick="sortTable(1)">Owner Name</th>
+                        <th class="text-center" style="cursor: pointer;" onclick="sortTable(2)">ECS Task Definition</th>
+                        <th class="text-center" style="cursor: pointer;" onclick="sortTable(3)">ECS Task ARN</th>
+                        <th class="text-center">Connect</th>
+                        <th class="text-center">Revoke</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -32,8 +34,13 @@
                     <tr id='tr_{{task.instance_id}}' name='{{task.id}}'>
                         <td class='text-center' value='{{task.id}}'>{{task.id}}</td>
                         <td class='text-center' value='{{task.owner_id | safe }}'>{{task.owner_id | safe }}</td>
+                        <td class='text-center' value='{{id_name_map[task.owner_id] | safe }}'>
+                            {{id_name_map[task.owner_id] | safe }}</td>
                         <td class='text-center' value='{{task.task_definition}}'>{{task.task_definition}}</td>
                         <td class='text-center' value='{{task.instance_id | truncate(15)}}'>{{task.instance_id}}</td>
+                        <td class='text-center'><button class="btn btn-dark"
+                                onclick="connect_to_container('{{task.challenge_id}}', '{{task.owner_id | safe}}')">Connect</button>
+                        </td>
                         <td class='text-center'><a id="delete_{{task.instance_id}}" style="cursor: pointer;"
                                 class="fas fa-trash" onclick="check_nuke_container('{{task.instance_id}}', false)"></a>
                         </td>
@@ -186,6 +193,25 @@
         });
 
         return obj;
+    }
+</script>
+<script>
+    function connect_to_container(challenge, owner_id) {
+        fetch(`/api/v1/connect?${new URLSearchParams({ 'id': challenge, 'owner': owner_id })}`).then(result => result.json()).then(result => {
+            console.log(result);
+
+            if (result['success']) {
+                fetch(`${window.location.protocol}//${result['data'][0]}/guacamole/api/tokens`, { method: 'POST', headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ 'data': result['data'][1] }) }).then(result => result.json()).then(auth => {
+                    window.open(`${window.location.protocol}//${result['data'][0]}/guacamole/?token=${auth['authToken']}`, "_blank");
+                });
+            } else {
+                ezal({
+                    title: "Attention!",
+                    body: "Failed to connect to the container. Please try again shortly.",
+                    button: "Got it!"
+                });
+            }
+        });
     }
 </script>
 {% endblock scripts %}

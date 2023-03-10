@@ -140,7 +140,7 @@ class ECSConfig(db.Model):
     """
 
     id = db.Column(db.Integer, primary_key=True)
-    repositories = db.Column("repositories", db.Text)
+    task_definitions = db.Column("repositories", db.Text)
 
     active_vpc = db.Column("active_vpc", db.String(64), index=True)
 
@@ -156,6 +156,8 @@ class ECSConfig(db.Model):
     guacamole_address = db.Column("guacamole_address", db.String(128))
 
     guacamole_json_secret_key = db.Column("guacamole_json_secret_key", db.String(128))
+
+    filter_tag = db.Column("filter_tag", db.String(128))
 
 
 class ECSChallengeTracker(db.Model):
@@ -227,7 +229,7 @@ def define_ecs_admin(app):
             ecs.aws_access_key_id = request.form["aws_access_key_id"] or None
             ecs.aws_secret_access_key = request.form["aws_secret_access_key"] or None
             ecs.region = request.form["region"]
-            ecs.repositories = json.dumps(get_repositories(ecs))
+            ecs.task_definitions = json.dumps(get_task_definitions(ecs))
 
             ecs.guacamole_json_secret_key = (
                 request.form["guacamole_json_secret_key"] or None
@@ -237,6 +239,8 @@ def define_ecs_admin(app):
             ecs.cluster = request.form.to_dict(flat=False).get("cluster")[0]
 
             ecs.active_vpc = request.form.to_dict(flat=False).get("active_vpc")[0]
+
+            ecs.filter_tag = request.form.to_dict(flat=False).get("filter_tag")[0]
 
             # Fetch the subnets and security groups associated with this VPC
 
@@ -298,14 +302,17 @@ def define_ecs_status(app):
     @admins_only
     def ecs_admin():
         ecs_tasks = ECSChallengeTracker.query.all()
+        id_name_map = {}
         for i in ecs_tasks:
             if is_teams_mode():
                 name = Teams.query.filter_by(id=i.owner_id).first()
-                i.owner_id = name.name
+                id_name_map[i.owner_id] = name.name
             else:
                 name = Users.query.filter_by(id=i.owner_id).first()
-                i.owner_id = name.name
-        return render_template("admin_ecs_status.html", tasks=ecs_tasks)
+                id_name_map[i.owner_id] = name.name
+        return render_template(
+            "admin_ecs_status.html", tasks=ecs_tasks, id_name_map=id_name_map
+        )
 
     app.register_blueprint(admin_ecs_status)
 
@@ -344,7 +351,7 @@ class KillTaskAPI(Resource):
 
 
 # For the ECS Config Page. Gets the list of task definitions available on the ECS cluster.
-def get_repositories(ecs):
+def get_task_definitions(ecs):
     ecs_client = boto3.client(
         "ecs",
         ecs.region,
@@ -352,9 +359,17 @@ def get_repositories(ecs):
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
-    taskDefs = ecs_client.list_task_definitions()
+    taskDefs = [
+        ecs_client.describe_task_definition(taskDefinition=arn, include=["TAGS"])
+        for arn in ecs_client.list_task_definitions()["taskDefinitionArns"]
+    ]
 
-    return taskDefs["taskDefinitionArns"]
+    return [
+        taskDef["taskDefinition"]["taskDefinitionArn"]
+        for taskDef in taskDefs
+        if not ecs.filter_tag
+        or len(list(filter(lambda tag: tag["key"] == ecs.filter_tag, taskDef["tags"])))
+    ]
 
 
 def get_clusters(ecs):
@@ -365,7 +380,11 @@ def get_clusters(ecs):
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
-    return ecs_client.list_clusters()["clusterArns"]
+    clusters = ecs_client.describe_clusters(
+        clusters=ecs_client.list_clusters()["clusterArns"], include=["TAGS"]
+    )["clusters"]
+
+    return [cluster["clusterArn"] for cluster in clusters]
 
 
 def get_vpcs(ecs):
@@ -399,21 +418,26 @@ def get_subnets(ecs, vpc):
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
-    subnets = list(
-        filter(
-            lambda subnet: subnet["VpcId"] == vpc,
-            ec2_client.describe_subnets()["Subnets"],
-        )
-    )
+    subnets = [
+        subnet
+        for subnet in ec2_client.describe_subnets(
+            Filters=[{"Name": "tag-key", "Values": [ecs.filter_tag]}]
+            if ecs.filter_tag
+            else []
+        )["Subnets"]
+        if subnet["VpcId"] == vpc
+    ]
 
     return [
         {
-            "value": sn["SubnetId"],
+            "value": subnet["SubnetId"],
             "name": tags[0]["Value"]
-            if len(tags := list(filter(lambda tag: tag["Key"] == "Name", sn["Tags"])))
+            if len(
+                tags := list(filter(lambda tag: tag["Key"] == "Name", subnet["Tags"]))
+            )
             else "",
         }
-        for sn in subnets
+        for subnet in subnets
     ]
 
 
@@ -425,14 +449,20 @@ def get_security_groups(ecs, vpc):
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
-    security_groups = list(
-        filter(
-            lambda security_group: security_group["VpcId"] == vpc,
-            ec2_client.describe_security_groups()["SecurityGroups"],
-        )
-    )
+    security_groups = [
+        security_group
+        for security_group in ec2_client.describe_security_groups(
+            Filters=[{"Name": "tag-key", "Values": [ecs.filter_tag]}]
+            if ecs.filter_tag
+            else []
+        )["SecurityGroups"]
+        if security_group["VpcId"] == vpc
+    ]
 
-    return [{"value": sg["GroupId"], "name": sg["GroupName"]} for sg in security_groups]
+    return [
+        {"value": security_group["GroupId"], "name": security_group["GroupName"]}
+        for security_group in security_groups
+    ]
 
 
 def get_address_of_task_container(ecs, task, container_name):
@@ -843,7 +873,7 @@ class TaskAPI(Resource):
             return abort(403)
         ecs = ECSConfig.query.filter_by(id=1).first()
         tasks = ECSChallengeTracker.query.all()
-        if challenge.task_definition not in get_repositories(ecs):
+        if challenge.task_definition not in json.loads(ecs.task_definitions):
             return abort(403)
         if is_teams_mode():
             session = get_current_team()
@@ -1020,8 +1050,9 @@ class JWTFetcher(Resource):
 
         challenge_id = request.args.get("id")
         challenge = ECSChallenge.query.filter_by(id=challenge_id).first()
-        if challenge is None:
-            return {"success": False, "data": []}
+        if not is_admin():
+            if challenge is None:
+                return {"success": False, "data": []}
 
         # Get the ECSChallengeTracker for this container
 
@@ -1030,9 +1061,14 @@ class JWTFetcher(Resource):
         else:
             session = get_current_user()
 
-        container = ECSChallengeTracker.query.filter_by(
-            challenge_id=challenge_id, owner_id=session.id
-        ).first()
+        if is_admin() and request.args.get("owner"):
+            container = ECSChallengeTracker.query.filter_by(
+                challenge_id=challenge_id, owner_id=request.args.get("owner")
+            ).first()
+        else:
+            container = ECSChallengeTracker.query.filter_by(
+                challenge_id=challenge_id, owner_id=session.id
+            ).first()
         if container is None:
             return {"success": False, "data": []}
 
@@ -1106,7 +1142,7 @@ class ECSAPI(Resource):
     @admins_only
     def get(self):
         ecs = ECSConfig.query.filter_by(id=1).first()
-        images = get_repositories(ecs)
+        images = get_task_definitions(ecs)
         if images:
             data = list()
             for i in images:
@@ -1161,38 +1197,48 @@ def load(app):
 
     # Attempt to perform initial setup of the ECS Config from environment variables
 
-    ecs = ECSConfig.query.first()
-
-    if ecs is None:
-        ecs = ECSConfig()
-
-    if "AWS_ACCESS_KEY_ID" in os.environ.keys():
-        ecs.aws_access_key_id = os.environ["AWS_ACCESS_KEY_ID"]
-
-    if "AWS_SECRET_ACCESS_KEY" in os.environ.keys():
-        ecs.aws_secret_access_key = os.environ["AWS_SECRET_ACCESS_KEY"]
-
-    if "AWS_REGION" in os.environ.keys():
-        ecs.region = os.environ["AWS_REGION"]
-
-    if "AWS_CLUSTER" in os.environ.keys():
-        ecs.cluster = os.environ["AWS_CLUSTER"]
-
-    if "AWS_VPC" in os.environ.keys():
-        ecs.active_vpc = os.environ["AWS_VPC"]
-
-    if "GUACAMOLE_JSON_SECRET_KEY" in os.environ.keys():
-        ecs.guacamole_json_secret_key = os.environ["GUACAMOLE_JSON_SECRET_KEY"]
-
-    if "GUACAMOLE_ADDRESS" in os.environ.keys():
-        ecs.guacamole_address = os.environ["GUACAMOLE_ADDRESS"]
-
     try:
-        if ecs.active_vpc is not None:
-            ecs.subnets = json.dumps(get_subnets(ecs, ecs.active_vpc))
-            ecs.security_groups = json.dumps(get_security_groups(ecs, ecs.active_vpc))
-    except:
-        pass
+        ecs = ECSConfig.query.first()
 
-    db.session.add(ecs)
-    db.session.commit()
+        if ecs is None:
+            ecs = ECSConfig()
+
+        if "AWS_ACCESS_KEY_ID" in os.environ.keys():
+            ecs.aws_access_key_id = os.environ["AWS_ACCESS_KEY_ID"]
+
+        if "AWS_SECRET_ACCESS_KEY" in os.environ.keys():
+            ecs.aws_secret_access_key = os.environ["AWS_SECRET_ACCESS_KEY"]
+
+        if "AWS_REGION" in os.environ.keys():
+            ecs.region = os.environ["AWS_REGION"]
+
+        if "AWS_CLUSTER" in os.environ.keys():
+            ecs.cluster = os.environ["AWS_CLUSTER"]
+
+        if "AWS_VPC" in os.environ.keys():
+            ecs.active_vpc = os.environ["AWS_VPC"]
+
+        if "AWS_FILTER_TAG" in os.environ.keys():
+            ecs.filter_tag = os.environ["AWS_FILTER_TAG"]
+
+        if "GUACAMOLE_JSON_SECRET_KEY" in os.environ.keys():
+            ecs.guacamole_json_secret_key = os.environ["GUACAMOLE_JSON_SECRET_KEY"]
+
+        if "GUACAMOLE_ADDRESS" in os.environ.keys():
+            ecs.guacamole_address = os.environ["GUACAMOLE_ADDRESS"]
+
+        try:
+            if ecs.active_vpc is not None:
+                ecs.subnets = json.dumps(get_subnets(ecs, ecs.active_vpc))
+                ecs.security_groups = json.dumps(
+                    get_security_groups(ecs, ecs.active_vpc)
+                )
+        except:
+            pass
+
+        db.session.add(ecs)
+        db.session.commit()
+    except:
+        # This can fail due to database migrations not yet applied, so we should fail out gracefully
+        # (else it breaks the plugin init which occurs before migrations)
+        pass

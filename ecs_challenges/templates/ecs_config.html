@@ -102,6 +102,18 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="filter_tag-input">
+                        (Optional) Tag key used to filter which subnets, security_groups, task_definitions are shown
+                    </label>
+                    {% if config.filter_tag %}
+                    <input class="form-control" type="text" name="filter_tag" id="filter_tag-input"
+                        placeholder="Ex: CTFd" value='{{ config.filter_tag }}' />
+                    {% else %}
+                    <input class="form-control" type="text" name="filter_tag" id="filter_tag" placeholder="Ex: CTFd" />
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
                     <label for="guacamole_json_secret_key-input">
                         (Optional) Guacamole JSON Secret Key
                     </label>

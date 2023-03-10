@@ -1,15 +1,9 @@
 {% extends "challenge.html" %}
 {% block description %}
-<script>
-    var ECS_TASK = '{{ challenge.instance_id | safe }}';
-    (function () {
-        get_ecs_status(ECS_TASK);
-    })();
-</script>
 {{ challenge.html }}
 <div class='mb-3 text-center' id='ecs_container'>
     <span>
-        <a onclick="start_container('{{ challenge.id | safe }}');" class='btn btn-dark'>
+        <a onclick="start_container({{ challenge.id | safe }});" class='btn btn-dark'>
             <small style='color:white;'><i class="fas fa-play"></i> Start ECS Task</small>
         </a>
     </span>

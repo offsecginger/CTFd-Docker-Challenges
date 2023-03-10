@@ -11,6 +11,7 @@ The environment variables specific to this plugin available are as follows
 * `AWS_REGION`: The region for the plugin to operate in
 * `AWS_CLUSTER`: The cluster (specified using the full ARN) to run tasks in
 * `AWS_VPC`: The VPC (specified using the VPC ID) to use for subnets/security groups
+* (Optional) `AWS_FILTER_TAG`: The tag key to filter which subnets, security groups and task definitions are shown in the challenge creation options
 * (Optional) `GUACAMOLE_JSON_SECRET_KEY`: The secret key to use to encrypt JWTs for Guacamole
 * (Optional) `GUACAMOLE_ADDRESS`: The address of the Guacamole server (just the domain)
 * (Optional) `GUACAMOLE_SSH_PRIVATE_KEY`: The private key that Guacamole should use for connecting to containers.

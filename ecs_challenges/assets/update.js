@@ -58,7 +58,7 @@ $.fn.serializeJSON = function () {
     // Get the input and select elements and their values
 
     return getChildren(target)
-        .filter(elem => elem.tagName == 'INPUT' || elem.tagName == "SELECT")
+        .filter(elem => elem.tagName == 'INPUT' || elem.tagName == "SELECT" || elem.tagName == "TEXTAREA")
         .reduce(
             (acc, c) => (acc[c.name] = c.multiple ? [...c.options]
                 .filter(x => x.selected)

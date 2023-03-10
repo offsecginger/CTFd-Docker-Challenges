@@ -40,14 +40,16 @@ function get_ecs_status(challenge) {
     fetch("/api/v1/ecs_status").then(result => result.json()).then(result => {
         result['data'].forEach((item, i) => {
             if (item.challenge_id == challenge) {
-                var ports = String(item.ports).split(',');
                 var data = '';
                 document.querySelector('#ecs_container').innerHTML = '<pre>ECS Task Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_revert_container"></div>' + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_connect_to_container"></div>';
                 var countDownDate = new Date(parseInt(item.revert_time) * 1000).getTime();
 
                 let running = false;
 
-                var x = setInterval(function () {
+                let revert_section = document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container");
+                let connect_section = document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container");
+
+                let status_check_interval = setInterval(function () {
                     var now = new Date().getTime();
                     var distance = countDownDate - now;
                     var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
@@ -55,10 +57,10 @@ function get_ecs_status(challenge) {
                     if (seconds < 10) {
                         seconds = "0" + seconds
                     }
-                    document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").innerHTML = 'Able to reset container in ' + minutes + ':' + seconds;
+                    revert_section.innerHTML = 'Able to reset container in ' + minutes + ':' + seconds;
                     if (distance < 0) {
-                        clearInterval(x);
-                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container").innerHTML = '<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>';
+                        clearInterval(status_check_interval);
+                        revert_section.innerHTML = '<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>';
                     }
 
                     if (item.guacamole) {
@@ -67,9 +69,9 @@ function get_ecs_status(challenge) {
                                 if (result['success']) {
                                     if (result['data'] == 'HEALTHY') {
                                         running = true;
-                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = '<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>';
+                                        connect_section.innerHTML = '<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>';
                                     } else {
-                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>Container Status: ${result['data'] == 'UNKNOWN' ? 'STARTING' : result[data]}</span>`;
+                                        connect_section.innerHTML = `<span>Container Status: ${result['data'] == 'UNKNOWN' ? 'STARTING' : result[data]}</span>`;
                                     }
                                 }
                             });
@@ -80,9 +82,9 @@ function get_ecs_status(challenge) {
                                 if (result['success']) {
                                     if (result['data'] == 'HEALTHY') {
                                         running = true;
-                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>IP: ${result['public_ip']}</small>`;
+                                        connect_section.innerHTML = `<span>IP: ${result['public_ip']}</small>`;
                                     } else {
-                                        document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container").innerHTML = `<span>Container Status: ${result['data'] == 'UNKNOWN' ? 'STARTING' : result[data]}</span>`;
+                                        connect_section.innerHTML = `<span>Container Status: ${result['data'] == 'UNKNOWN' ? 'STARTING' : result[data]}</span>`;
                                     }
                                 }
                             });
@@ -167,3 +169,5 @@ function ezal(args) {
 
     return obj;
 }
+
+setTimeout(() => get_ecs_status(CTFd.lib.$("#challenge-id").val()), 100);
