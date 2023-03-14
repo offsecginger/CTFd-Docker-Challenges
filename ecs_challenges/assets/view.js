@@ -24,6 +24,7 @@ CTFd._internal.challenge.submit = function (preview) {
     }
 
     return CTFd.api.post_challenge_attempt(params, body).then(function (response) {
+        setTimeout(() => get_ecs_status(challenge), 100);
         if (response.status === 429) {
             // User was ratelimited but process response
             return response
@@ -33,15 +34,14 @@ CTFd._internal.challenge.submit = function (preview) {
             return response
         }
         return response
-    })
+    });
 };
 
 function get_ecs_status(challenge) {
     fetch("/api/v1/ecs_status").then(result => result.json()).then(result => {
-        result['data'].forEach((item, i) => {
+        if (!result['data'].some((item, i) => {
             if (item.challenge_id == challenge) {
-                var data = '';
-                document.querySelector('#ecs_container').innerHTML = '<pre>ECS Task Information:<br />' + data + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_revert_container"></div>' + '<div class="mt-2" id="' + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + '_connect_to_container"></div>';
+                document.querySelector('#ecs_container').innerHTML = `<pre>ECS Task Information:<br /><div class="mt-2" id="${String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_")}_revert_container"></div><div class="mt-2" id="${String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_")}_connect_to_container"></div>`;
                 var countDownDate = new Date(parseInt(item.revert_time) * 1000).getTime();
 
                 let running = false;
@@ -57,21 +57,26 @@ function get_ecs_status(challenge) {
                     if (seconds < 10) {
                         seconds = "0" + seconds
                     }
-                    revert_section.innerHTML = 'Able to reset container in ' + minutes + ':' + seconds;
+                    revert_section.innerHTML = 'Able to stop/reset container in ' + minutes + ':' + seconds;
                     if (distance < 0) {
                         clearInterval(status_check_interval);
-                        revert_section.innerHTML = '<a onclick="start_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'><i class="fas fa-redo"></i> Revert</small></a>';
+                        revert_section.innerHTML = `<a onclick="start_container('${item.challenge_id}');" class='btn btn-dark'><small style='color:white;'><i style='margin-right: 5px;' class="fas fa-redo"></i>Reset</small></a>`;
+                        revert_section.innerHTML += `<a onclick="stop_container('${item.challenge_id}', '${item.instance_id}');" class='btn btn-dark'><small style='color:white;'><i style='margin-right: 5px;' class="fas fa-stop"></i>Stop</small></a>`;
                     }
 
                     if (item.guacamole) {
                         if (!running) {
                             fetch(`/api/v1/task_status?${new URLSearchParams({ taskInst: item.instance_id })}`).then(result => result.json()).then(result => {
                                 if (result['success']) {
-                                    if (result['data'] == 'HEALTHY') {
+                                    if (result['data']['healthy']) {
                                         running = true;
-                                        connect_section.innerHTML = '<a onclick="connect_to_container(\'' + item.challenge_id + '\');" class=\'btn btn-dark\'><small style=\'color:white;\'>Connect</small></a>';
+                                        connect_section.innerHTML = ``;
+                                        if (item.ssh)
+                                            connect_section.innerHTML += `<a onclick="connect_to_container('${item.challenge_id}', 'ssh');" class='btn btn-dark'><small style='color:white;'>Connect via SSH</small></a>`;
+                                        if (item.vnc)
+                                            connect_section.innerHTML += `<a onclick="connect_to_container('${item.challenge_id}', 'vnc');" class='btn btn-dark'><small style='color:white;'>Connect via VNC</small></a>`;
                                     } else {
-                                        connect_section.innerHTML = `<span>Container Status: ${result['data'] == 'UNKNOWN' ? 'STARTING' : result[data]}</span>`;
+                                        connect_section.innerHTML = `<span>Container Status: ${result['data']['healthy'] ? '' : 'STARTING'}</span>`;
                                     }
                                 }
                             });
@@ -80,41 +85,63 @@ function get_ecs_status(challenge) {
                         if (!running) {
                             fetch(`/api/v1/task_status?${new URLSearchParams({ taskInst: item.instance_id })}`).then(result => result.json()).then(result => {
                                 if (result['success']) {
-                                    if (result['data'] == 'HEALTHY') {
+                                    if (result['data']['healthy']) {
                                         running = true;
                                         connect_section.innerHTML = `<span>IP: ${result['public_ip']}</small>`;
                                     } else {
-                                        connect_section.innerHTML = `<span>Container Status: ${result['data'] == 'UNKNOWN' ? 'STARTING' : result[data]}</span>`;
+                                        connect_section.innerHTML = `<span>Container Status: ${result['data']['healthy'] ? '' : 'STARTING'}</span>`;
                                     }
                                 }
                             });
                         }
                     }
                 }, 1000);
-                return false;
+                return true;
             };
-        });
+        })) {
+            // No existing challenge, inject the start button
+            document.querySelector('#ecs_container').innerHTML = `<span>
+                <a onclick="start_container('${CTFd.lib.$('#challenge-id').val()}');" class='btn btn-dark'>
+                    <small style='color:white;'><i class="fas fa-play"></i> Start ECS Task</small>
+                </a>
+            </span>`
+        }
     });
 };
 
 function start_container(challenge) {
     running = false;
     document.querySelector('#ecs_container').innerHTML = '<div class="text-center"><i class="fas fa-circle-notch fa-spin fa-1x"></i></div>';
-    fetch(`/api/v1/task?${new URLSearchParams({ 'id': challenge })}`).then(result => {
-        if (!result.ok) {
-            /*ezal({
-                title: "Attention!",
-                body: "You can only revert a container once per 5 minutes! Please be patient.",
-                button: "Got it!"
-            });*/
+    fetch(`/api/v1/task?${new URLSearchParams({ 'id': challenge })}`).then(result => result.json()).then(result => {
+        if (!result.success) {
+            if (result.data[0].indexOf("running") > 0) {
+                ezq({ title: "Challenge already running", body: `You already have a challenge already running (${result.data[1]})<br><br>Would you like to stop that challenge and start this one?` }).then(() => {
+                    stop_container(result.data[2], result.data[3], false);
+                    setTimeout(() => {
+                        start_container(challenge);
+                    }, 250);
+                })
+            } else {
+                ezal({ title: "Failed to start challenge", body: result.data[0], button: "Dismiss" });
+            }
         }
 
         get_ecs_status(challenge);
+    });
+}
+
+function stop_container(challenge, task_id, refresh = true) {
+    running = false;
+    document.querySelector('#ecs_container').innerHTML = '<div class="text-center"><i class="fas fa-circle-notch fa-spin fa-1x"></i></div>';
+    fetch(`/api/v1/nuke?${new URLSearchParams({ 'task': task_id })}`).then(result => {
+        if (refresh) {
+            get_ecs_status(challenge);
+        }
     })
 }
 
-function connect_to_container(challenge) {
-    fetch(`/api/v1/connect?${new URLSearchParams({ 'id': challenge })}`).then(result => result.json()).then(result => {
+function connect_to_container(challenge, protocol) {
+    fetch(`/api/v1/connect?${new URLSearchParams({ 'id': challenge, 'protocol': protocol })}`).then(result => result.json()).then(result => {
         console.log(result);
 
         if (result['success']) {
@@ -137,7 +164,7 @@ var modal =
     '    <div class="modal-content">' +
     '      <div class="modal-header">' +
     '        <h5 class="modal-title">{0}</h5>' +
-    '        <button type="button" class="close" data-dismiss="modal" aria-label="Close">' +
+    '        <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">' +
     '          <span aria-hidden="true">&times;</span>' +
     "        </button>" +
     "      </div>" +
@@ -150,24 +177,68 @@ var modal =
     "  </div>" +
     "</div>";
 
+function ezq(args) {
+    let $ = CTFd.lib.$;
+    String.prototype.format = function () { return [...arguments].reduce((acc, c, ci) => acc.replace(`{${ci}}`, c), this) };
+    return new Promise((resolve, reject) => {
+        var res = modal.format(args.title, args.body);
+        var obj = $(res);
+        var deny =
+            $('<button type="button" class="btn btn-danger" data-dismiss="modal" data-bs-dismiss="modal">No</button>');
+        var confirm = $(
+            '<button type="button" class="btn btn-primary" data-dismiss="modal" data-bs-dismiss="modal">Yes</button>'
+        );
+
+        obj.find(".modal-footer").append(deny);
+        obj.find(".modal-footer").append(confirm);
+
+        $("main").append(obj);
+
+        $(obj).on("hidden.bs.modal", function (e) {
+            $(this).modal("dispose");
+        });
+
+        $(confirm).on("click", function () {
+            resolve();
+        });
+
+        obj.modal('show');
+    });
+}
+
 function ezal(args) {
+    let $ = CTFd.lib.$;
+    String.prototype.format = function () { return [...arguments].reduce((acc, c, ci) => acc.replace(`{${ci}}`, c), this) };
+
     var res = modal.format(args.title, args.body);
-    var temp = document.createElement('div');
-    temp.innerHTML = res;
-    var obj = res.firstChild;
-    var button = '<button type="button" class="btn btn-primary" data-dismiss="modal">{0}</button>'.format(
+    var obj = $(res);
+    var button = '<button type="button" class="btn btn-primary" data-dismiss="modal" data-bs-dismiss="modal">{0}</button>'.format(
         args.button
     );
+
     obj.find(".modal-footer").append(button);
-    document.querySelector("main").append(obj);
+    $("main").append(obj);
 
     obj.modal("show");
 
-    obj.on("hidden.bs.modal", function (e) {
+    $(obj).on("hidden.bs.modal", function (e) {
         $(this).modal("dispose");
     });
 
     return obj;
+}
+
+// Inject the bootstrap Modal plugin if window.Modal is set.
+if (window.Modal) {
+    let plugin = window.Modal
+    let $ = CTFd.lib.$;
+    const name = plugin.NAME;
+    const JQUERY_NO_CONFLICT = $.fn[name];
+    $.fn[name] = plugin.jQueryInterface;
+    $.fn[name].Constructor = plugin;
+    $.fn[name].noConflict = () => {
+        $.fn[name] = JQUERY_NO_CONFLICT;
+    };
 }
 
 setTimeout(() => get_ecs_status(CTFd.lib.$("#challenge-id").val()), 100);

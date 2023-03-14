@@ -109,28 +109,49 @@ class guacamole:
         return b64encode(cipher.encrypt(pad(payload, AES.block_size)))
 
     @staticmethod
-    def createJSON(ID, IP_ADDRESS):
+    def createJSON(ID, IP_ADDRESS, PROTOCOL):
         DATETIME = datetime.now() + timedelta(hours=2)
         TIMESTAMP = datetime.timestamp(DATETIME)
-        payload = {
-            "username": "",
-            "expires": str(TIMESTAMP).split(".")[0] + "000",
-            "connections": {
-                ID: {
-                    "protocol": "ssh",
-                    "parameters": {
-                        "hostname": IP_ADDRESS.strip(),
-                        "username": "punk",
-                        "private-key": os.environ["GUACAMOLE_SSH_PRIVATE_KEY"],
-                        "port": 22,
-                        "proxy_hostname": "localhost",
-                        "proxy_port": 4822,
-                        "recording-path": "/tmp/recordings",
-                        "recording-name": "My-Connection-${GUAC_USERNAME}-${GUAC_DATE}-${GUAC_TIME}",
-                    },
-                }
-            },
-        }
+        if PROTOCOL == "ssh":
+            payload = {
+                "username": "",
+                "expires": str(TIMESTAMP).split(".")[0] + "000",
+                "connections": {
+                    ID: {
+                        "protocol": "ssh",
+                        "parameters": {
+                            "hostname": IP_ADDRESS.strip(),
+                            "username": "punk",
+                            "private-key": os.environ.get(
+                                "GUACAMOLE_SSH_PRIVATE_KEY", ""
+                            ),
+                            "port": 22,
+                            "proxy_hostname": "localhost",
+                            "proxy_port": 4822,
+                            "recording-path": "/tmp/recordings",
+                            "recording-name": "My-Connection-${GUAC_USERNAME}-${GUAC_DATE}-${GUAC_TIME}",
+                        },
+                    }
+                },
+            }
+        elif PROTOCOL == "vnc":
+            payload = {
+                "username": "",
+                "expires": str(TIMESTAMP).split(".")[0] + "000",
+                "connections": {
+                    ID: {
+                        "protocol": "vnc",
+                        "parameters": {
+                            "hostname": IP_ADDRESS.strip(),
+                            "port": 5900,
+                            "proxy_hostname": "localhost",
+                            "proxy_port": 4822,
+                            "recording-path": "/tmp/recordings",
+                            "recording-name": "My-Connection-${GUAC_USERNAME}-${GUAC_DATE}-${GUAC_TIME}",
+                        },
+                    }
+                },
+            }
         return payload
 
 
@@ -183,8 +204,13 @@ class ECSChallenge(Challenges):
     task_definition = db.Column(db.String(128), index=True)
     subnets = db.Column(db.Text)
     security_group = db.Column(db.String(128), index=True)
-    entrypoint_container = db.Column(db.String(128), index=True)
     launch_type = db.Column(db.String(32))
+
+    ssh_container = db.Column(
+        db.String(128)
+    )  # These could end up being the same but we'll track them separately.
+    vnc_container = db.Column(db.String(128))
+    flag_containers = db.Column(db.Text)
 
 
 class ECSConfigForm(BaseForm):
@@ -304,12 +330,8 @@ def define_ecs_status(app):
         ecs_tasks = ECSChallengeTracker.query.all()
         id_name_map = {}
         for i in ecs_tasks:
-            if is_teams_mode():
-                name = Teams.query.filter_by(id=i.owner_id).first()
-                id_name_map[i.owner_id] = name.name
-            else:
-                name = Users.query.filter_by(id=i.owner_id).first()
-                id_name_map[i.owner_id] = name.name
+            name = Users.query.filter_by(id=i.owner_id).first()
+            id_name_map[i.owner_id] = name.name
         return render_template(
             "admin_ecs_status.html", tasks=ecs_tasks, id_name_map=id_name_map
         )
@@ -322,13 +344,13 @@ kill_task = Namespace("nuke", description="Endpoint to nuke tasks")
 
 @kill_task.route("", methods=["POST", "GET"])
 class KillTaskAPI(Resource):
-    @admins_only
+    @authed_only
     def get(self):
         task = request.args.get("task")
         full = request.args.get("all")
         ecs_config = ECSConfig.query.filter_by(id=1).first()
         ecs_tracker = ECSChallengeTracker.query.all()
-        if full == "true":
+        if full == "true" and is_admin():
             for c in ecs_tracker:
                 try:
                     stop_task(ecs_config, c.instance_id)
@@ -338,12 +360,25 @@ class KillTaskAPI(Resource):
                 db.session.commit()
 
         elif task != "null" and task in [c.instance_id for c in ecs_tracker]:
-            try:
-                stop_task(ecs_config, task)
-            except:
-                pass
-            ECSChallengeTracker.query.filter_by(instance_id=task).delete()
-            db.session.commit()
+            if is_admin():
+                try:
+                    stop_task(ecs_config, task)
+                except:
+                    pass
+                ECSChallengeTracker.query.filter_by(instance_id=task).delete()
+                db.session.commit()
+            else:
+                session = get_current_user()
+
+                challenge = ECSChallengeTracker.query.filter_by(
+                    instance_id=task
+                ).first()
+                if int(challenge.owner_id) == session.id:
+                    stop_task(ecs_config, task)
+                    ECSChallengeTracker.query.filter_by(instance_id=task).delete()
+                    db.session.commit()
+                else:
+                    return False
 
         else:
             return False
@@ -559,10 +594,7 @@ def create_task(
         aws_secret_access_key=ecs.aws_secret_access_key,
     )
 
-    if is_teams_mode():
-        session = get_current_team()
-    else:
-        session = get_current_user()
+    session = get_current_user()
 
     owner = session.name
 
@@ -572,6 +604,23 @@ def create_task(
     flags = Flags.query.filter_by(challenge_id=challenge_id).all()
 
     challenge = ECSChallenge.query.filter_by(id=challenge_id).first()
+
+    # First we should check if the user already has a running task
+    if not is_admin():
+        if len(ECSChallengeTracker.query.filter_by(owner_id=session.id).all()):
+            tracker = ECSChallengeTracker.query.filter_by(owner_id=session.id).first()
+            challenge = ECSChallenge.query.filter_by(id=tracker.challenge_id).first()
+            return False, [
+                "You already have a running task!",
+                challenge.name,
+                tracker.challenge_id,
+                tracker.instance_id,
+            ]
+
+    # Prevent starting a task if the user has a solve on this challenge already
+    if not is_admin():
+        if len(Solves.query.filter_by(challenge_id=challenge.id).all()):
+            return False, ["You have already solved this task!"]
 
     environment_variables = [
         (
@@ -585,38 +634,52 @@ def create_task(
         ("SSH_KEY", os.environ.get("CONTAINER_SSH_PUBLIC_KEY", ""))
     )
 
-    task = ecs_client.run_task(
-        cluster=ecs.cluster,
-        taskDefinition=task_definition,
-        launchType="FARGATE" if challenge.launch_type == "fargate" else "EC2",
-        networkConfiguration={
-            "awsvpcConfiguration": {
-                "assignPublicIp": "DISABLED" if ecs.guacamole_address else "ENABLED",
-                "subnets": subnets,
-                "securityGroups": [security_group],
-            }
-        },
-        overrides={
-            "containerOverrides": [
-                {
-                    "name": challenge.entrypoint_container,
-                    "environment": [
-                        {"name": name, "value": flag}
-                        for (name, flag) in environment_variables
-                    ],
+    try:
+        aws_response = ecs_client.run_task(
+            cluster=ecs.cluster,
+            taskDefinition=task_definition,
+            launchType="FARGATE" if challenge.launch_type == "fargate" else "EC2",
+            networkConfiguration={
+                "awsvpcConfiguration": {
+                    "assignPublicIp": "DISABLED"
+                    if ecs.guacamole_address
+                    else "ENABLED",
+                    "subnets": subnets,
+                    "securityGroups": [security_group],
                 }
+            },
+            overrides={
+                "containerOverrides": [
+                    {
+                        "name": container,
+                        "environment": [
+                            {"name": name, "value": flag}
+                            for (name, flag) in environment_variables
+                        ],
+                    }
+                    for container in json.loads(challenge.flag_containers)
+                ],
+            },
+            tags=[
+                {"key": "ChallengeID", "value": f"{challenge_id}"},
+                {"key": "OwnerID", "value": f"{session.id}"},
             ],
-        },
-        tags=[
-            {"key": "ChallengeID", "value": f"{challenge_id}"},
-            {"key": "OwnerID", "value": f"{session.id}"},
-        ],
-        placementConstraints=[{"type": "distinctInstance"}]
-        if challenge.launch_type == "ec2"
-        else [],
-    )
+            placementConstraints=[{"type": "distinctInstance"}]
+            if challenge.launch_type == "ec2"
+            else [],
+        )
+    except Exception as e:
+        print("Failed to start challenge! (Call to run_task threw!)")
+        print(repr(e))
+        return False, ["Internal server error!"]
 
-    return task
+    if any(aws_response["tasks"]):
+        return True, aws_response
+    else:
+        print(
+            "Failed to start challenge! (AWS response returned an empty list of created tasks)"
+        )
+        return False, ["Internal server error!"]
 
 
 class ECSChallengeType(BaseChallenge):
@@ -651,10 +714,10 @@ class ECSChallengeType(BaseChallenge):
         :return:
         """
         data = request.form or request.get_json()
-        # data["subnets"] = json.dumps(request.form.getlist("subnets_select"))
         if "subnets" in data.keys():
             data["subnets"] = json.dumps(data["subnets"])
-        print(data)
+        if "flag_containers" in data.keys():
+            data["flag_containers"] = json.dumps(data["flag_containers"])
         for attr, value in data.items():
             setattr(challenge, attr, value)
 
@@ -702,7 +765,8 @@ class ECSChallengeType(BaseChallenge):
             "state": challenge.state,
             "max_attempts": challenge.max_attempts,
             "type": challenge.type,
-            "subnets": challenge.subnets,
+            "subnets": challenge.subnets or "{}",
+            "flag_containers": challenge.flag_containers or "{}",
             "security_group": challenge.security_group,
             "launch_type": challenge.launch_type,
             "type_data": {
@@ -722,6 +786,8 @@ class ECSChallengeType(BaseChallenge):
         :param request:
         :return:
         """
+        ecs = ECSConfig.query.filter_by(id=1).first()
+
         data = request.form or request.get_json()
         valid_launch_types = ["ec2", "fargate"]
         if data["launch_type"] not in valid_launch_types:
@@ -730,6 +796,35 @@ class ECSChallengeType(BaseChallenge):
             )
         if "subnets" in data.keys():
             data["subnets"] = json.dumps(data["subnets"])
+        if "flag_containers" in data.keys():
+            data["flag_containers"] = json.dumps(data["flag_containers"])
+
+        # Discover ssh_container and vnc_container
+
+        ecs_client = boto3.client(
+            "ecs",
+            ecs.region,
+            aws_access_key_id=ecs.aws_access_key_id,
+            aws_secret_access_key=ecs.aws_secret_access_key,
+        )
+        taskDefinition = data["task_definition"]
+        containerDefs = ecs_client.describe_task_definition(
+            taskDefinition=taskDefinition
+        )["taskDefinition"]["containerDefinitions"]
+
+        containerMappings = {}
+
+        for containerDef in containerDefs:
+            if portMappings := containerDef.get("portMappings", []):
+                for portMapping in portMappings:
+                    if portMapping["containerPort"] == 22:
+                        containerMappings["ssh"] = containerDef["name"]
+                    elif portMapping["containerPort"] == 5900:
+                        containerMappings["vnc"] = containerDef["name"]
+
+        data["ssh_container"] = containerMappings.get("ssh")
+        data["vnc_container"] = containerMappings.get("vnc")
+
         challenge = ECSChallenge(**data)
         db.session.add(challenge)
         db.session.commit()
@@ -750,14 +845,9 @@ class ECSChallengeType(BaseChallenge):
         data = request.form or request.get_json()
 
         # Get the flag from the challenge the user is attempting
-        if is_teams_mode():
-            challengetracker = ECSChallengeTracker.query.filter_by(
-                challenge_id=challenge.id, owner_id=get_current_team().id
-            ).first()
-        else:
-            challengetracker = ECSChallengeTracker.query.filter_by(
-                challenge_id=challenge.id, owner_id=get_current_user().id
-            ).first()
+        challengetracker = ECSChallengeTracker.query.filter_by(
+            challenge_id=challenge.id, owner_id=get_current_user().id
+        ).first()
 
         if challengetracker is None:
             return False, "Failed to find challenge task!"
@@ -806,22 +896,13 @@ class ECSChallengeType(BaseChallenge):
         submission = data["submission"].strip()
         ecs = ECSConfig.query.filter_by(id=1).first()
 
-        if is_teams_mode():
-            ecs_task = (
-                ECSChallengeTracker.query.filter_by(
-                    task_definition=challenge.task_definition
-                )
-                .filter_by(owner_id=team.id)
-                .first()
+        ecs_task = (
+            ECSChallengeTracker.query.filter_by(
+                task_definition=challenge.task_definition
             )
-        else:
-            ecs_task = (
-                ECSChallengeTracker.query.filter_by(
-                    task_definition=challenge.task_definition
-                )
-                .filter_by(owner_id=user.id)
-                .first()
-            )
+            .filter_by(owner_id=user.id)
+            .first()
+        )
         stop_task(ecs, ecs_task.instance_id)
         ECSChallengeTracker.query.filter_by(instance_id=ecs_task.instance_id).delete()
 
@@ -873,24 +954,18 @@ class TaskAPI(Resource):
             return abort(403)
         ecs = ECSConfig.query.filter_by(id=1).first()
         tasks = ECSChallengeTracker.query.all()
-        if challenge.task_definition not in json.loads(ecs.task_definitions):
-            return abort(403)
-        if is_teams_mode():
-            session = get_current_team()
-        else:
-            session = get_current_user()
 
-            # First we'll delete all old docker containers (+2 hours)
-            for i in tasks:
-                if (
-                    int(session.id) == int(i.owner_id)
-                    and (unix_time(datetime.utcnow()) - int(i.timestamp)) >= 7200
-                ):
-                    stop_task(ecs, i.instance_id)
-                    ECSChallengeTracker.query.filter_by(
-                        instance_id=i.instance_id
-                    ).delete()
-                    db.session.commit()
+        session = get_current_user()
+
+        # First we'll delete all old docker containers (+2 hours)
+        for i in tasks:
+            if (
+                int(session.id) == int(i.owner_id)
+                and (unix_time(datetime.utcnow()) - int(i.timestamp)) >= 7200
+            ):
+                stop_task(ecs, i.instance_id)
+                ECSChallengeTracker.query.filter_by(instance_id=i.instance_id).delete()
+                db.session.commit()
         check = (
             ECSChallengeTracker.query.filter_by(owner_id=session.id)
             .filter_by(challenge_id=challenge.id)
@@ -911,7 +986,7 @@ class TaskAPI(Resource):
             ).delete()
         # portsbl = get_unavailable_ports(docker)
         flag = "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
-        create = create_task(
+        success, result = create_task(
             ecs,
             challenge.task_definition,
             json.loads(challenge.subnets),
@@ -920,21 +995,27 @@ class TaskAPI(Resource):
             flag,
         )
 
-        entry = ECSChallengeTracker(
-            owner_id=session.id,
-            challenge_id=challenge.id,
-            task_definition=challenge.task_definition,
-            timestamp=unix_time(datetime.utcnow()),
-            revert_time=unix_time(datetime.utcnow()) + 300,
-            instance_id=create["tasks"][0]["taskArn"],
-            ports="",
-            flag=flag,
-        )
+        if success:
+            entry = ECSChallengeTracker(
+                owner_id=session.id,
+                challenge_id=challenge.id,
+                task_definition=challenge.task_definition,
+                timestamp=unix_time(datetime.utcnow()),
+                revert_time=unix_time(datetime.utcnow()) + 300,
+                instance_id=result["tasks"][0]["taskArn"],
+                ports="",
+                flag=flag,
+            )
 
-        db.session.add(entry)
-        db.session.commit()
-        db.session.close()
-        return
+            db.session.add(entry)
+            db.session.commit()
+            db.session.close()
+            return {"success": True, "data": []}
+        else:
+            db.session.commit()
+            db.session.close()
+
+            return {"success": False, "data": result}
 
 
 task_status_namespace = Namespace(
@@ -958,10 +1039,7 @@ class TaskStatus(Resource):
 
         taskInstance = request.args.get("taskInst")
 
-        if is_teams_mode():
-            session = get_current_team()
-        else:
-            session = get_current_user()
+        session = get_current_user()
 
         challenge_tracker = ECSChallengeTracker.query.filter_by(
             instance_id=taskInstance
@@ -979,16 +1057,16 @@ class TaskStatus(Resource):
             "tasks"
         ][0]
 
-        container = list(
-            filter(
-                lambda container: container["name"] == challenge.entrypoint_container,
-                task["containers"],
-            )
-        )[0]
+        containers = [
+            container
+            for container in task["containers"]
+            if container["name"] in [challenge.ssh_container, challenge.vnc_container]
+            and container["healthStatus"] != "HEALTHY"
+        ]
 
         return {
             "success": True,
-            "data": container["healthStatus"],
+            "data": {"healthy": not any(containers)},
             "public_ip": get_address_of_task_container(
                 ecs,
                 taskInstance,
@@ -1048,6 +1126,8 @@ class JWTFetcher(Resource):
         if ecs.guacamole_address is None:
             return {"success": False, "data": []}
 
+        protocol = request.args.get("protocol")
+
         challenge_id = request.args.get("id")
         challenge = ECSChallenge.query.filter_by(id=challenge_id).first()
         if not is_admin():
@@ -1056,10 +1136,7 @@ class JWTFetcher(Resource):
 
         # Get the ECSChallengeTracker for this container
 
-        if is_teams_mode():
-            session = get_current_team()
-        else:
-            session = get_current_user()
+        session = get_current_user()
 
         if is_admin() and request.args.get("owner"):
             container = ECSChallengeTracker.query.filter_by(
@@ -1074,16 +1151,23 @@ class JWTFetcher(Resource):
 
         # Identify the IP address of the container
 
-        address = get_address_of_task_container(
-            ecs, container.instance_id, challenge.entrypoint_container
-        )
+        if protocol == "ssh":
+            address = get_address_of_task_container(
+                ecs, container.instance_id, challenge.ssh_container
+            )
+        elif protocol == "vnc":
+            address = get_address_of_task_container(
+                ecs, container.instance_id, challenge.vnc_container
+            )
+        else:
+            return {"success": False, "data": []}
 
         if address is None:
             return {"success": False, "data": []}
 
         # Create a JWT for this address to hand over to Guacamole
 
-        payload = guacamole.createJSON(session.id, address)
+        payload = guacamole.createJSON(session.id, address, protocol)
         jwt = guacamole.encryptJWT(GUACAMOLE_JSON_SECRET_KEY, json.dumps(payload))
 
         return {"success": True, "data": [ecs.guacamole_address, jwt.decode("UTF-8")]}
@@ -1105,12 +1189,8 @@ class ECSStatus(Resource):
     def get(self):
         ecs = ECSConfig.query.first()
 
-        if is_teams_mode():
-            session = get_current_team()
-            tracker = ECSChallengeTracker.query.filter_by(owner_id=session.id)
-        else:
-            session = get_current_user()
-            tracker = ECSChallengeTracker.query.filter_by(owner_id=session.id)
+        session = get_current_user()
+        tracker = ECSChallengeTracker.query.filter_by(owner_id=session.id)
         data = list()
         for i in tracker:
             challenge = ECSChallenge.query.filter_by(id=i.challenge_id).first()
@@ -1124,6 +1204,8 @@ class ECSStatus(Resource):
                     "revert_time": i.revert_time,
                     "instance_id": i.instance_id,
                     "guacamole": bool(ecs.guacamole_address),
+                    "ssh": bool(challenge.ssh_container),
+                    "vnc": bool(challenge.vnc_container),
                 }
             )
         return {"success": True, "data": data}

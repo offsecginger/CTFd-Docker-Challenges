@@ -1,13 +1,7 @@
 {% extends "challenge.html" %}
 {% block description %}
 {{ challenge.html }}
-<div class='mb-3 text-center' id='ecs_container'>
-    <span>
-        <a onclick="start_container({{ challenge.id | safe }});" class='btn btn-dark'>
-            <small style='color:white;'><i class="fas fa-play"></i> Start ECS Task</small>
-        </a>
-    </span>
-</div>
+<div class='mb-3 text-center' id='ecs_container'></div>
 {% endblock %}
 {% block input %}
 <input id="challenge-id" class="challenge-id" type="hidden" value="{{ challenge.id }}">

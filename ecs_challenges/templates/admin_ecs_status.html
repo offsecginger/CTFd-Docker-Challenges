@@ -38,8 +38,14 @@
                             {{id_name_map[task.owner_id] | safe }}</td>
                         <td class='text-center' value='{{task.task_definition}}'>{{task.task_definition}}</td>
                         <td class='text-center' value='{{task.instance_id | truncate(15)}}'>{{task.instance_id}}</td>
-                        <td class='text-center'><button class="btn btn-dark"
-                                onclick="connect_to_container('{{task.challenge_id}}', '{{task.owner_id | safe}}')">Connect</button>
+                        <td class='text-center'>
+                            <button class="btn btn-dark"
+                                onclick="connect_to_container('{{task.challenge_id}}', '{{task.owner_id | safe}}', 'ssh')">Connect
+                                via SSH</button>
+                            <br>
+                            <button class="btn btn-dark"
+                                onclick="connect_to_container('{{task.challenge_id}}', '{{task.owner_id | safe}}', 'vnc')">Connect
+                                via VNC</button>
                         </td>
                         <td class='text-center'><a id="delete_{{task.instance_id}}" style="cursor: pointer;"
                                 class="fas fa-trash" onclick="check_nuke_container('{{task.instance_id}}', false)"></a>
@@ -196,8 +202,8 @@
     }
 </script>
 <script>
-    function connect_to_container(challenge, owner_id) {
-        fetch(`/api/v1/connect?${new URLSearchParams({ 'id': challenge, 'owner': owner_id })}`).then(result => result.json()).then(result => {
+    function connect_to_container(challenge, owner_id, protocol) {
+        fetch(`/api/v1/connect?${new URLSearchParams({ 'id': challenge, 'owner': owner_id, 'protocol': protocol })}`).then(result => result.json()).then(result => {
             console.log(result);
 
             if (result['success']) {

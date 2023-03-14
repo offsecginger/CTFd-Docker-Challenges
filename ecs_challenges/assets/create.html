@@ -21,9 +21,8 @@
     </label>
     <select id="taskdefinition_select" name="task_definition" class="form-control" required
         onchange="fetch_containers()"></select>
-    <label for="entrypoint_container" id="entrypoint_container">Entrypoint Container (The container the user will
-        connect to):</label>
-    <select id="entrypoint_container_select" name="entrypoint_container" class="form-control"></select>
+    <label for="flag_containers" id="flag_containers_label">Flag Containers:</label>
+    <select id="flag_containers_select" name="flag_containers" class="form-control" multiple size="6"></select>
     <label for="subnets" id="subnets_label">Subnet:</label>
     <select id="subnets_select" name="subnets" class="form-control" required multiple size="6"></select>
     <label for="security_group" id="security_group_label">Security Group:</label>

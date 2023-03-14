@@ -18,7 +18,7 @@ CTFd.plugin.run((_CTFd) => {
                     $("label[for='TaskDefinition']").text('Task Definition ' + item.name)
                 }
                 else {
-                    $("#taskdefinition_select").append($("<option />").val(item.name).text(item.name));
+                    $("#taskdefinition_select").append($("<option />").val(item.name).text(item.name.split('/')[1]));
                 }
             });
 
@@ -39,10 +39,9 @@ CTFd.plugin.run((_CTFd) => {
 function fetch_containers() {
     $.getJSON("/api/v1/containers", { taskDef: $("#taskdefinition_select")[0].value }, function (result) {
         if (result['success']) {
-            [...$("#entrypoint_container_select").children()].forEach(child => child.remove());
-
+            [...$("#flag_containers_select").children()].forEach(child => child.remove());
             $.each(result['data'], function (i, item) {
-                $("#entrypoint_container_select").append($("<option />").val(item).text(item))
+                $("#flag_containers_select").append($("<option />").val(item).text(item))
             });
         }
     });
@@ -51,7 +50,7 @@ function fetch_containers() {
 $.fn.serializeJSON = function () {
     let target = this[0];
 
-    // First we just recursively get all children of the target
+    // First we recursively get all children of the target
 
     function getChildren(t) {
         let children = [...t.children];
@@ -62,7 +61,7 @@ $.fn.serializeJSON = function () {
         return leaves.concat(nodes.reduce((acc, c) => acc.concat(c.tagName == 'SELECT' ? c : getChildren(c)), []))
     }
 
-    // Get the input and select elements and their values
+    // Get the input, select and textarea elements and their values
 
     return getChildren(target)
         .filter(elem => elem.name && (elem.tagName == 'INPUT' || elem.tagName == "SELECT" || elem.tagName == "TEXTAREA"))
