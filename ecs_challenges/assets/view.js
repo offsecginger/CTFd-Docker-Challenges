@@ -164,8 +164,7 @@ var modal =
     '    <div class="modal-content">' +
     '      <div class="modal-header">' +
     '        <h5 class="modal-title">{0}</h5>' +
-    '        <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">' +
-    '          <span aria-hidden="true">&times;</span>' +
+    '        <button type="button" class="close btn-close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Close">' +
     "        </button>" +
     "      </div>" +
     '      <div class="modal-body">' +
@@ -192,6 +191,10 @@ function ezq(args) {
         obj.find(".modal-footer").append(deny);
         obj.find(".modal-footer").append(confirm);
 
+        if (!window.Modal) {
+            obj.find(".close").append($("<span aria-hidden='true'>&times;</span>"));
+        }
+
         $("main").append(obj);
 
         $(obj).on("hidden.bs.modal", function (e) {
@@ -217,6 +220,11 @@ function ezal(args) {
     );
 
     obj.find(".modal-footer").append(button);
+
+    if (!window.Modal) {
+        obj.find(".close").append($("<span aria-hidden='true'>&times;</span>"));
+    }
+
     $("main").append(obj);
 
     obj.modal("show");
