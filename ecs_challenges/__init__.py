@@ -729,23 +729,25 @@ class ECSChallengeType(BaseChallenge):
             aws_access_key_id=ecs.aws_access_key_id,
             aws_secret_access_key=ecs.aws_secret_access_key,
         )
-        taskDefinition = data["task_definition"]
-        containerDefs = ecs_client.describe_task_definition(
-            taskDefinition=taskDefinition
-        )["taskDefinition"]["containerDefinitions"]
 
-        containerMappings = {}
+        if data.get("task_definition"):
+            taskDefinition = data["task_definition"]
+            containerDefs = ecs_client.describe_task_definition(
+                taskDefinition=taskDefinition
+            )["taskDefinition"]["containerDefinitions"]
 
-        for containerDef in containerDefs:
-            if portMappings := containerDef.get("portMappings", []):
-                for portMapping in portMappings:
-                    if portMapping["containerPort"] == 22:
-                        containerMappings["ssh"] = containerDef["name"]
-                    elif portMapping["containerPort"] == 5900:
-                        containerMappings["vnc"] = containerDef["name"]
+            containerMappings = {}
 
-        data["ssh_container"] = containerMappings.get("ssh")
-        data["vnc_container"] = containerMappings.get("vnc")
+            for containerDef in containerDefs:
+                if portMappings := containerDef.get("portMappings", []):
+                    for portMapping in portMappings:
+                        if portMapping["containerPort"] == 22:
+                            containerMappings["ssh"] = containerDef["name"]
+                        elif portMapping["containerPort"] == 5900:
+                            containerMappings["vnc"] = containerDef["name"]
+
+            data["ssh_container"] = containerMappings.get("ssh")
+            data["vnc_container"] = containerMappings.get("vnc")
 
         for attr, value in data.items():
             setattr(challenge, attr, value)
