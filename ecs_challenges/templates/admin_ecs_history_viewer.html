@@ -1,0 +1,106 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+
+<div id="container">
+    <div id="player" style="margin-left: 10%; margin-right: 10%"></div>
+    <br>
+    <div id="controls">
+        <button id="playpause" onclick="playpause()">⏸</button>
+        <input id="seek" type="range" onchange="seek(this.value)" />
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/plugins/ecs_challenges/assets/guacamole.min.js"></script>
+
+<script>
+    var session;
+    var target;
+    document.addEventListener("DOMContentLoaded", () => {
+        fetch(`${window.location.protocol}//{{ guacamole_address | safe }}/recordings/{{ filename }}`).then(response => response.blob()).then(content => {
+            target = document.getElementById("player");
+            session = new Guacamole.SessionRecording(content);
+
+            let seekbar = document.getElementById("seek");
+
+            console.log(session)
+            target.appendChild(session.getDisplay().getElement());
+            setTimeout(() => {
+                session.play();
+                seekbar.setAttribute("max", session.getDuration());
+                setTimeout(() => {
+                    let disp = session.getDisplay();
+
+                    disp.scale(target.offsetWidth / disp.getWidth());
+                }, 100);
+            }, 100);
+
+            setInterval(() => {
+                document.getElementById("seek").value = session.getPosition();
+            }, 1000);
+        });
+    });
+
+    var status = 0;
+    function playpause() {
+        let playpause = document.getElementById("playpause");
+        if (status ^= 1) {
+            session.pause();
+            playpause.innerHTML = "⏵";
+        } else {
+            session.play();
+            playpause.innerHTML = "⏸";
+        }
+    }
+
+    function seek(pos) {
+        session.seek(pos);
+    }
+
+    window.onresize = () => {
+        let disp = session.getDisplay();
+
+        disp.scale(target.offsetWidth / disp.getWidth());
+    }
+</script>
+{% endblock %}
+{% block stylesheets %}
+<style>
+    #container {
+        position: relative;
+    }
+
+    #controls {
+        display: flex;
+        flex-direction: row;
+        height: 30px;
+        z-index: 100;
+        position: absolute;
+        bottom: 0px;
+        width: 100%;
+    }
+
+    #controls button {
+        flex-grow: 1;
+    }
+
+    #controls input#seek {
+        flex-grow: 58;
+    }
+
+    #player {
+        max-width: 100%;
+        max-height: calc(100% - 30px);
+        display: flex;
+    }
+
+    input#seek::-webkit-slider-thumb {
+        visibility: hidden;
+    }
+
+    input#seek::-ms-fill-upper {
+        color: black;
+    }
+
+</style>
+{% endblock %}

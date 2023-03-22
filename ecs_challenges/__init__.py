@@ -91,6 +91,7 @@ from Crypto.Hash import HMAC, SHA256
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 from base64 import b64encode
+import uuid
 
 
 GUACAMOLE_JSON_SECRET_KEY = os.environ.get("GUACAMOLE_JSON_SECRET_KEY")
@@ -109,7 +110,7 @@ class guacamole:
         return b64encode(cipher.encrypt(pad(payload, AES.block_size)))
 
     @staticmethod
-    def createJSON(ID, IP_ADDRESS, PROTOCOL):
+    def createJSON(ID, IP_ADDRESS, PROTOCOL, RECORDING_NAME):
         DATETIME = datetime.now() + timedelta(hours=2)
         TIMESTAMP = datetime.timestamp(DATETIME)
         if PROTOCOL == "ssh":
@@ -128,8 +129,8 @@ class guacamole:
                             "port": 22,
                             "proxy_hostname": "localhost",
                             "proxy_port": 4822,
-                            "recording-path": "/tmp/recordings",
-                            "recording-name": "My-Connection-${GUAC_USERNAME}-${GUAC_DATE}-${GUAC_TIME}",
+                            "recording-path": "/recordings",
+                            "recording-name": RECORDING_NAME,
                         },
                     }
                 },
@@ -146,8 +147,8 @@ class guacamole:
                             "port": 5900,
                             "proxy_hostname": "localhost",
                             "proxy_port": 4822,
-                            "recording-path": "/tmp/recordings",
-                            "recording-name": "My-Connection-${GUAC_USERNAME}-${GUAC_DATE}-${GUAC_TIME}",
+                            "recording-path": "/recordings",
+                            "recording-name": RECORDING_NAME,
                         },
                     }
                 },
@@ -213,6 +214,13 @@ class ECSChallenge(Challenges):
     flag_containers = db.Column(db.Text)
 
 
+class ECSHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True, index=True)
+    user_id = db.Column(db.Integer)
+    recording_uuid = db.Column(db.Text)
+    challenge_id = db.Column(db.Integer)
+
+
 class ECSConfigForm(BaseForm):
     id = HiddenField()
     aws_access_key_id = StringField(
@@ -261,8 +269,6 @@ def define_ecs_admin(app):
                 request.form["guacamole_json_secret_key"] or None
             )
             ecs.guacamole_address = request.form["guacamole_address"] or None
-
-            ecs.cluster = request.form.to_dict(flat=False).get("cluster")[0]
 
             ecs.active_vpc = request.form.to_dict(flat=False).get("active_vpc")[0]
 
@@ -337,6 +343,79 @@ def define_ecs_status(app):
         )
 
     app.register_blueprint(admin_ecs_status)
+
+
+def define_ecs_history(app):
+    admin_ecs_history = Blueprint(
+        "admin_ecs_history",
+        __name__,
+        template_folder="templates",
+        static_folder="assets",
+    )
+
+    @admin_ecs_history.route("/admin/ecs_history", methods=["GET", "POST"])
+    @admins_only
+    def ecs_history():
+        ecs = ECSConfig.query.first()
+
+        last_id = request.args.get("last_id")
+        user_id = request.args.get("user_id")
+        challenge_id = request.args.get("challenge_id")
+        query = ECSHistory.query
+        if user_id:
+            query = query.filter_by(user_id=user_id)
+        if challenge_id:
+            query = query.filter_by(challenge_id=challenge_id)
+        if last_id:
+            query = query.filter(ECSHistory.id < last_id)
+
+        entries = query.order_by(ECSHistory.id.desc()).limit(20).all()
+
+        if len(entries) == 20:
+            next_page_id = entries[len(entries) - 1].id
+        else:
+            next_page_id = None
+
+        if (
+            last_id
+            and not ECSHistory.query.order_by(ECSHistory.id.desc()).first().id
+            == int(last_id) - 1
+        ):
+            last_page_id = entries[0].id + 21
+        else:
+            last_page_id = None
+
+        id_name_map = {}
+        id_challenge_map = {}
+        for i in entries:
+            name = Users.query.filter_by(id=i.user_id).first()
+            id_name_map[i.user_id] = name.name
+        for i in entries:
+            challenge = ECSChallenge.query.filter_by(id=i.challenge_id).first()
+            id_challenge_map[i.challenge_id] = challenge.name if challenge else ""
+        return render_template(
+            "admin_ecs_history.html",
+            guacamole_address=ecs.guacamole_address,
+            entries=entries,
+            id_name_map=id_name_map,
+            id_challenge_map=id_challenge_map,
+            last_page_id=last_page_id,
+            next_page_id=next_page_id,
+        )
+
+    # This implements the actual history viewer which we will open in a separate window.
+    @admin_ecs_history.route("/admin/ecs_history_viewer", methods=["GET", "POST"])
+    @admins_only
+    def ecs_history_viewer():
+        ecs = ECSConfig.query.first()
+
+        return render_template(
+            "admin_ecs_history_viewer.html",
+            guacamole_address=ecs.guacamole_address,
+            filename=request.args.get("filename"),
+        )
+
+    app.register_blueprint(admin_ecs_history)
 
 
 kill_task = Namespace("nuke", description="Endpoint to nuke tasks")
@@ -617,10 +696,22 @@ def create_task(
                 tracker.instance_id,
             ]
 
-    # Prevent starting a task if the user has a solve on this challenge already
+    # Prevent starting a task if the user/team has a solve on this challenge already
     if not is_admin():
-        if len(Solves.query.filter_by(challenge_id=challenge.id).all()):
-            return False, ["You have already solved this task!"]
+        if is_teams_mode():
+            if len(
+                Solves.query.filter_by(
+                    challenge_id=challenge.id, team_id=session.id
+                ).all()
+            ):
+                return False, ["You have already solved this task!"]
+        else:
+            if len(
+                Solves.query.filter_by(
+                    challenge_id=challenge.id, user_id=session.id
+                ).all()
+            ):
+                return False, ["You have already solved this task!"]
 
     environment_variables = [
         (
@@ -1196,10 +1287,25 @@ class JWTFetcher(Resource):
         if address is None:
             return {"success": False, "data": []}
 
+        # Create a ECSHistory entry for the connection
+
+        recording_uuid = uuid.uuid4()
+
+        history_entry = ECSHistory(
+            user_id=session.id,
+            recording_uuid=str(recording_uuid),
+            challenge_id=challenge.id,
+        )
+
         # Create a JWT for this address to hand over to Guacamole
 
-        payload = guacamole.createJSON(session.id, address, protocol)
+        payload = guacamole.createJSON(
+            session.id, address, protocol, history_entry.recording_uuid
+        )
         jwt = guacamole.encryptJWT(GUACAMOLE_JSON_SECRET_KEY, json.dumps(payload))
+
+        db.session.add(history_entry)
+        db.session.commit()
 
         return {"success": True, "data": [ecs.guacamole_address, jwt.decode("UTF-8")]}
 
@@ -1299,6 +1405,7 @@ def load(app):
     register_plugin_assets_directory(app, base_path="/plugins/ecs_challenges/assets")
     define_ecs_admin(app)
     define_ecs_status(app)
+    define_ecs_history(app)
     CTFd_API_v1.add_namespace(ecs_namespace, "/ecs")
     CTFd_API_v1.add_namespace(ecs_config_namespace, "/ecs_config")
     CTFd_API_v1.add_namespace(task_namespace, "/task")

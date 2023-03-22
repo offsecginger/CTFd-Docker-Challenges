@@ -6,5 +6,9 @@
 	{
 		"name": "ECS Status",
 		"route": "/admin/ecs_status"
+	},
+	{
+		"name": "ECS History",
+		"route": "/admin/ecs_history"
 	}
 ]
