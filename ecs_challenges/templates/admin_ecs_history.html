@@ -1,0 +1,210 @@
+{% extends 'admin/base.html' %}
+{% block content %}
+<div class="jumbotron">
+    <div class="container">
+        <h1>ECS History</h1>
+    </div>
+</div>
+<div class="container">
+    <div class="row" style="justify-content: center;">
+        <div>
+            {% for error in errors %}
+            <div class="alert alert-danger alert-dismissable" role="alert">
+                <span class="sr-only">Error:</span>
+                {{ error }}
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span
+                        aria-hidden="true">×</span></button>
+            </div>
+            {% endfor %}
+            <div id="clear_filters" style="width: 100%; position: relative; height: 30px;"></div>
+            {% if entries %}
+            <table id='entries' class="table table-striped">
+                <thead>
+                    <tr>
+                        <th width="10px" class="text-center" style="cursor: pointer;">Entry ID
+                        </th>
+                        <th class="text-center" style="cursor: pointer;">User ID</th>
+                        <th class="text-center" style="cursor: pointer;">User Name</th>
+                        <th class="text-center" style="cursor: pointer;">Challenge ID</th>
+                        <th class="text-center" style="cursor: pointer;">Challenge Name</th>
+                        <th class="text-center">Viewer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in entries %}
+                    <tr id='tr_{{entry.id}}' name='{{entry.id}}'>
+                        <td class='text-center'>{{entry.id}}</td>
+                        <td class='text-center'>
+                            <a href="#" onclick="filter_by_user('{{entry.user_id | safe}}')">
+                                {{entry.user_id | safe }}
+                            </a>
+                        </td>
+                        <td class='text-center'>{{id_name_map[entry.user_id] | safe }}</td>
+                        <td class='text-center'>
+                            <a href="#" onclick="filter_by_challenge('{{entry.challenge_id | safe }}')">
+                                {{entry.challenge_id | safe }}
+                            </a>
+                        </td>
+                        <td class='text-center'>{{id_challenge_map[entry.challenge_id] | safe }}</td>
+                        <td class='text-center'>
+                            <button class="btn btn-dark" onclick="view_replay('{{entry.recording_uuid}}')">View</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div style="width: 100%; position: relative;">
+                {% if last_page_id %}
+                <button class="btn btn-dark" style="left: 0px; position: absolute;" onclick="prev_page()">Previous
+                    Page</button>
+                {% endif %}
+                {% if next_page_id %}
+                <button class="btn btn-dark" style="right: 0px; position: absolute;" onclick="next_page()">Next
+                    Page</button>
+                {% endif %}
+            </div>
+            {% else %}
+            <h3 class='text-center'> No history entries</h3>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock content %}
+{% block scripts %}
+<script>
+    var modal =
+        '<div class="modal fade" tabindex="-1" role="dialog">' +
+        '  <div class="modal-dialog" role="document">' +
+        '    <div class="modal-content">' +
+        '      <div class="modal-header">' +
+        '        <h5 class="modal-title">{0}</h5>' +
+        '        <button type="button" class="close" data-dismiss="modal" aria-label="Close">' +
+        '          <span aria-hidden="true">&times;</span>' +
+        "        </button>" +
+        "      </div>" +
+        '      <div class="modal-body">' +
+        "        <p>{1}</p>" +
+        "      </div>" +
+        '      <div class="modal-footer">' +
+        "      </div>" +
+        "    </div>" +
+        "  </div>" +
+        "</div>";
+
+    function ezq(args) {
+        var res = modal.format(args.title, args.body);
+        var obj = $(res);
+        var deny =
+            '<button type="button" class="btn btn-danger" data-dismiss="modal">No</button>';
+        var confirm = $(
+            '<button type="button" class="btn btn-primary" data-dismiss="modal">Yes</button>'
+        );
+
+        obj.find(".modal-footer").append(deny);
+        obj.find(".modal-footer").append(confirm);
+
+        $("main").append(obj);
+
+        $(obj).on("hidden.bs.modal", function (e) {
+            $(this).modal("dispose");
+        });
+
+        $(confirm).click(function () {
+            args.success();
+        });
+
+        obj.modal("show");
+
+        return obj;
+    }
+
+    function ezal(args) {
+        var res = modal.format(args.title, args.body);
+        var obj = $(res);
+        var button = '<button type="button" class="btn btn-primary" data-dismiss="modal">{0}</button>'.format(
+            args.button
+        );
+
+        obj.find(".modal-footer").append(button);
+        $("main").append(obj);
+
+        obj.modal("show");
+
+        $(obj).on("hidden.bs.modal", function (e) {
+            $(this).modal("dispose");
+        });
+
+        return obj;
+    }
+</script>
+<script>
+    function view_replay(filename) {
+        let filenames = [];
+        function fetch_filenames(index) {
+            fetch(`${window.location.protocol}//{{ guacamole_address | safe }}/recordings/${filename}${index ? `.${index}` : ''}`).then(resp => {
+                if (resp.ok) {
+                    filenames.push(`${filename}${index ? `.${index}` : ''}`);
+                    fetch_filenames(index + 1);
+                } else {
+                    // Show a modal dialog for each of the options if we have more than one recordings
+                    if (filenames.length > 1) {
+                        let modal = ezal({ title: 'Numerous recordings for this session', body: 'There are numerous recordings for this session, please choose the file you want to view', button: 'Dismiss' });
+                        $.each(filenames, (_, filename) => {
+                            modal.find(".modal-body").append($(`<button class="btn btn-dark" onclick="window.open('/admin/ecs_history_viewer?filename=${filename}', '_blank');">${filename}</button>`));
+                            modal.find(".modal-body").append($(`<br>`));
+                        });
+                    } else {
+                        window.open(`/admin/ecs_history_viewer?filename=${filename}`, "_blank");
+                    }
+                    return;
+                }
+            });
+        }
+        fetch_filenames(0);
+    }
+
+    function filter_by_user(user_id) {
+        let params = new URLSearchParams(window.location.search);
+        if (user_id)
+            params.set('user_id', user_id);
+        else
+            params.delete('user_id');
+        // Reset the page when filtering
+        params.delete('last_id');
+        window.location.href = `${window.location.origin}${window.location.pathname}?${params}`
+    }
+
+    function filter_by_challenge(challenge_id) {
+        let params = new URLSearchParams(window.location.search);
+        if (challenge_id)
+            params.set('challenge_id', challenge_id);
+        else
+            params.delete('challenge_id');
+        // Reset the page when filtering
+        params.delete('last_id');
+        window.location.href = `${window.location.origin}${window.location.pathname}?${params}`
+    }
+
+    function next_page() {
+        let params = new URLSearchParams(window.location.search);
+        params.set('last_id', '{{ next_page_id | safe }}');
+        window.location.href = `${window.location.origin}${window.location.pathname}?${params}`
+    }
+
+    function prev_page() {
+        let params = new URLSearchParams(window.location.search);
+        params.set('last_id', '{{ last_page_id | safe }}');
+        window.location.href = `${window.location.origin}${window.location.pathname}?${params}`
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        let params = new URLSearchParams(window.location.search);
+        if (params.get('user_id')) {
+            $("#clear_filters").append($(`<a style="position: absolute; left: 0px" onclick="filter_by_user('')" href="#">Clear user filter</a>`))
+        }
+        if (params.get('challenge_id')) {
+            $("#clear_filters").append($(`<a style="position: absolute; right: 0px" onclick="filter_by_challenge('')" href="#">Clear challenge filter</a>`))
+        }
+    });
+</script>
+{% endblock scripts %}

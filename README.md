@@ -62,6 +62,11 @@ Within this repository you will also find a `Dockerfile` that builds CTFd with t
 * Tasks older than 2 hours are culled when the user interacts with the site again
 * Tasks are stopped once the user has successfully solved the challenge
 * Allows specifying the specific container within a task definition that the user should connect in to.
+* Allows viewing session recordings when using Guacamole
+
+# Configuring Recordings
+
+The plugin expects that the guacamole address also serves recording files from a `/recordings/` directory. You will need to configure a shared volume between guacd (where it records to `/recordings/`) and a some web server (such as nginx) to serve the contents of that folder at the subdirectory `/recordings/`.
 
 ## Creating challenges
 
