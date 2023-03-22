@@ -1289,13 +1289,17 @@ class JWTFetcher(Resource):
 
         # Create a ECSHistory entry for the connection
 
-        recording_uuid = uuid.uuid4()
+        if ecs.guacamole_address:
+            recording_uuid = uuid.uuid4()
 
-        history_entry = ECSHistory(
-            user_id=session.id,
-            recording_uuid=str(recording_uuid),
-            challenge_id=challenge.id,
-        )
+            history_entry = ECSHistory(
+                user_id=session.id,
+                recording_uuid=str(recording_uuid),
+                challenge_id=challenge.id,
+            )
+
+            db.session.add(history_entry)
+            db.session.commit()
 
         # Create a JWT for this address to hand over to Guacamole
 
@@ -1303,9 +1307,6 @@ class JWTFetcher(Resource):
             session.id, address, protocol, history_entry.recording_uuid
         )
         jwt = guacamole.encryptJWT(GUACAMOLE_JSON_SECRET_KEY, json.dumps(payload))
-
-        db.session.add(history_entry)
-        db.session.commit()
 
         return {"success": True, "data": [ecs.guacamole_address, jwt.decode("UTF-8")]}
 
