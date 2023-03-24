@@ -52,6 +52,36 @@
                     <input class="form-control" type="file" name="client_key" id="key_file" {% if not config.tls_enabled %} disabled {% endif %} {% if config.tls_enabled and not config.client_key %} required {% endif %} />
                 </div>
                 <div class="form-group">
+                    <label for="memory-limit-input">
+                        Memory Limit per Container (Bytes)
+                    </label>
+                    {% if config.memory_limit %}
+                    <input class="form-control" type="number" name="memory_limit" id="memory-limit-input" placeholder="Default: 0" value='{{ config.memory_limit }}'/>
+                    {% else %}
+                    <input class="form-control" type="number" name="memory_limit" id="memory-limit-input" placeholder="Default: 0" />
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    <label for="cpu-period-input">
+                        CPU Period per Container (Microseconds)
+                    </label>
+                    {% if config.cpu_period %}
+                    <input class="form-control" type="number" name="cpu_period" id="cpu-period-input" placeholder="Default: 100000" min="0" value='{{ config.cpu_period }}'/>
+                    {% else %}
+                    <input class="form-control" type="number" name="cpu_period" id="cpu-period-input" placeholder="Default: 100000" min="0" />
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    <label for="cpu-quota-input">
+                        CPU Quota per Container (Microseconds)
+                    </label>
+                    {% if config.cpu_quota %}
+                    <input class="form-control" type="number" name="cpu_quota" id="cpu-quota-input" placeholder="Leave empty to have the default limit" min="0" value='{{ config.cpu_quota }}'/>
+                    {% else %}
+                    <input class="form-control" type="number" name="cpu_quota" id="cpu-quota-input" placeholder="Leave empty to have the default limit" min="0" />
+                    {% endif %}
+                </div>
+                <div class="form-group">
                     <label for="repo-ms">
                         Repositories
                     </label>

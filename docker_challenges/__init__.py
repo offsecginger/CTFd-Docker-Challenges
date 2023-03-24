@@ -16,6 +16,7 @@ from flask import request, Blueprint, abort, render_template, session
 from wtforms import (
     FileField,
     HiddenField,
+    IntegerField,
     RadioField,
     StringField,
     SelectMultipleField,
@@ -42,6 +43,9 @@ class DockerConfig(db.Model):
     ca_cert = db.Column("ca_cert", db.String(2200), index=True)
     client_cert = db.Column("client_cert", db.String(2000), index=True)
     client_key = db.Column("client_key", db.String(3300), index=True)
+    memory_limit = db.Column("memory_limit", db.BigInteger)
+    cpu_period = db.Column("cpu_period", db.BigInteger)
+    cpu_quota = db.Column("cpu_quota", db.BigInteger)
     repositories = db.Column("repositories", db.String(1024), index=True)
 
 
@@ -69,6 +73,9 @@ class DockerConfigForm(BaseForm):
     ca_cert = FileField('CA Cert')
     client_cert = FileField('Client Cert')
     client_key = FileField('Client Key')
+    memory_limit = IntegerField('Memory Limit per Container (Bytes)')
+    cpu_period = IntegerField('CPU Period per Container (Microseconds)')
+    cpu_quota = IntegerField('CPU Quota per Container (Microseconds)')
     repositories = SelectMultipleField('Repositories')
     submit = SubmitField('Submit')
 
@@ -115,6 +122,9 @@ def define_docker_admin(app):
                 b.ca_cert = None
                 b.client_cert = None
                 b.client_key = None
+            b.memory_limit = None if request.form['memory_limit'] in [None, ''] else request.form['memory_limit']
+            b.cpu_period = None if request.form['cpu_period'] in [None, ''] else request.form['cpu_period']
+            b.cpu_quota = None if request.form['cpu_quota'] in [None, ''] else request.form['cpu_quota']
             try:
                 b.repositories = ','.join(request.form.to_dict(flat=False)['repositories'])
             except:
@@ -317,7 +327,14 @@ def create_container(docker, image, team, portbl):
         ports[i] = {}
         bindings[i] = [{"HostPort": tmp_ports.pop()}]
     headers = {'Content-Type': "application/json"}
-    data = json.dumps({"Image": image, "ExposedPorts": ports, "HostConfig": {"PortBindings": bindings}})
+    params = {"Image": image, "ExposedPorts": ports, "HostConfig": {"PortBindings": bindings}}
+    if docker.memory_limit:
+        params["HostConfig"]["Memory"] = docker.memory_limit
+    if docker.cpu_period:
+        params["HostConfig"]["CpuPeriod"] = docker.cpu_period
+    if docker.cpu_quota:
+        params["HostConfig"]["CpuQuota"] = docker.cpu_quota
+    data = json.dumps(params)
     if tls:
         r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=CERT,
                       verify=False, data=data, headers=headers)
