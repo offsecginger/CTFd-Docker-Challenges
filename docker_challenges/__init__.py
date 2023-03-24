@@ -1,39 +1,25 @@
 import traceback
 
-from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES, get_chal_class
+from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES
 from CTFd.plugins.flags import get_flag_class
 from CTFd.utils.user import get_ip
 from CTFd.utils.uploads import delete_file
-from CTFd.plugins import register_plugin_assets_directory, bypass_csrf_protection
-from CTFd.schemas.tags import TagSchema
-from CTFd.models import db, ma, Challenges, Teams, Users, Solves, Fails, Flags, Files, Hints, Tags, ChallengeFiles
-from CTFd.utils.decorators import admins_only, authed_only, during_ctf_time_only, require_verified_emails
-from CTFd.utils.decorators.visibility import check_challenge_visibility, check_score_visibility
+from CTFd.plugins import register_plugin_assets_directory
+from CTFd.models import db, Challenges, Teams, Users, Solves, Fails, Flags, Hints, Tags, ChallengeFiles
+from CTFd.utils.decorators import admins_only, authed_only
 from CTFd.utils.user import get_current_team
 from CTFd.utils.user import get_current_user
-from CTFd.utils.user import is_admin, authed
 from CTFd.utils.config import is_teams_mode
 from CTFd.api import CTFd_API_v1
-from CTFd.api.v1.scoreboard import ScoreboardDetail
-import CTFd.utils.scores
-from CTFd.api.v1.challenges import ChallengeList, Challenge
 from flask_restx import Namespace, Resource
-from flask import request, Blueprint, jsonify, abort, render_template, url_for, redirect, session
-# from flask_wtf import FlaskForm
+from flask import request, Blueprint, abort, render_template, session
 from wtforms import (
     FileField,
     HiddenField,
-    PasswordField,
     RadioField,
-    SelectField,
     StringField,
-    TextAreaField,
     SelectMultipleField,
-    BooleanField,
 )
-# from wtforms import TextField, SubmitField, BooleanField, HiddenField, FileField, SelectMultipleField
-from wtforms.validators import DataRequired, ValidationError, InputRequired
-from werkzeug.utils import secure_filename
 import requests
 import tempfile
 from CTFd.utils.dates import unix_time
@@ -41,11 +27,9 @@ from datetime import datetime
 import json
 import hashlib
 import random
-from CTFd.plugins import register_admin_plugin_menu_bar
 
 from CTFd.forms import BaseForm
 from CTFd.forms.fields import SubmitField
-from CTFd.utils.config import get_themes
 
 
 class DockerConfig(db.Model):
