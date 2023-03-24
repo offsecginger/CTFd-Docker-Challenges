@@ -769,7 +769,8 @@ def create_task(
                             ],
                         }
                     ]
-                    if challenge.ssh_container not in flag_containers
+                    if challenge.ssh_container
+                    and challenge.ssh_container not in flag_containers
                     else []
                 ),
             },
