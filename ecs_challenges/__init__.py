@@ -721,9 +721,12 @@ def create_task(
         for idx, flag in enumerate(flags)
     ]
 
-    environment_variables.append(
-        ("SSH_KEY", os.environ.get("CONTAINER_SSH_PUBLIC_KEY", ""))
-    )
+    flag_containers = json.loads(challenge.flag_containers)
+
+    if challenge.ssh_container in flag_containers:
+        environment_variables.append(
+            ("SSH_KEY", os.environ.get("CONTAINER_SSH_PUBLIC_KEY", ""))
+        )
 
     try:
         aws_response = ecs_client.run_task(
@@ -748,8 +751,25 @@ def create_task(
                             for (name, flag) in environment_variables
                         ],
                     }
-                    for container in json.loads(challenge.flag_containers)
-                ],
+                    for container in flag_containers
+                ]
+                + (
+                    [
+                        {
+                            "name": challenge.ssh_container,
+                            "environment": [
+                                {
+                                    "name": "SSH_KEY",
+                                    "value": os.environ.get(
+                                        "CONTAINER_SSH_PUBLIC_KEY", ""
+                                    ),
+                                }
+                            ],
+                        }
+                    ]
+                    if challenge.ssh_container not in flag_containers
+                    else []
+                ),
             },
             tags=[
                 {"key": "ChallengeID", "value": f"{challenge_id}"},
