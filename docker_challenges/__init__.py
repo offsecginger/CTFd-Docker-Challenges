@@ -315,7 +315,8 @@ def create_container(docker, image, team, portbl):
             return []
     host = docker.hostname
     URL_TEMPLATE = '%s://%s' % (prefix, host)
-    needed_ports = get_required_ports(docker, image)
+    challenge = DockerChallenge.query.filter_by(docker_image=image).first()
+    needed_ports = challenge.ports.split(',') if challenge.ports else get_required_ports(docker, image)
     team = hashlib.md5(team.encode("utf-8")).hexdigest()[:10]
     container_name = "%s_%s" % (image.split(':')[1], team)
     assigned_ports = dict()
@@ -425,6 +426,7 @@ class DockerChallengeType(BaseChallenge):
             'name': challenge.name,
             'value': challenge.value,
             'docker_image': challenge.docker_image,
+            'ports': challenge.ports,
             'description': challenge.description,
             'category': challenge.category,
             'state': challenge.state,
@@ -539,6 +541,7 @@ class DockerChallenge(Challenges):
     __mapper_args__ = {'polymorphic_identity': 'docker'}
     id = db.Column(None, db.ForeignKey('challenges.id'), primary_key=True)
     docker_image = db.Column(db.String(128), index=True)
+    ports = db.Column(db.String(128), nullable=True)
 
 
 # API
@@ -675,6 +678,27 @@ class DockerAPI(Resource):
                    }, 400
 
 
+docker_ports_namespace = Namespace("docker", description='Endpoint to retrieve docker image exposed ports')
+
+
+@docker_ports_namespace.route("", methods=['POST', 'GET'])
+class DockerPortsAPI(Resource):
+    """
+    This is for creating Docker Challenges. The purpose of this API is to populate the Docker Image exposed ports Select form
+    object in the Challenge Creation Screen.
+    """
+
+    @admins_only
+    def get(self):
+        image = request.args.get('image')
+        docker = DockerConfig.query.filter_by(id=1).first()
+        exposed_ports = list(get_required_ports(docker, image))
+        return {
+            'success': True,
+            'data': exposed_ports
+        }
+
+
 def load(app):
     app.db.create_all()
     CHALLENGE_CLASSES['docker'] = DockerChallengeType
@@ -682,6 +706,7 @@ def load(app):
     define_docker_admin(app)
     define_docker_status(app)
     CTFd_API_v1.add_namespace(docker_namespace, '/docker')
+    CTFd_API_v1.add_namespace(docker_ports_namespace, '/docker_ports')
     CTFd_API_v1.add_namespace(container_namespace, '/container')
     CTFd_API_v1.add_namespace(active_docker_namespace, '/docker_status')
     CTFd_API_v1.add_namespace(kill_container, '/nuke')

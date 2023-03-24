@@ -13,9 +13,16 @@
     </label>
     <select id="dockerimage_select" name="docker_image" class="form-control" required></select>
 </div>
+<div class="form-group">
+    <label for="ports" id="ports_label"><span id="ports_text">Published Ports, Separated With Comma:</span>
+        <i id="ports_tooltip" class="far fa-question-circle text-muted cursor-help" data-toggle="tooltip" data-placement="right" title="Leave empty to publish all exposed ports"></i>
+    </label>
+    <input id="docker_image_ports" type="text" class="form-control" name="ports">
+</div>
 {% endblock %}
 {% block footer %}
 <script>
 var DOCKER_IMAGE = '{{ challenge.docker_image }}';
+var DOCKER_IMAGE_PORTS = '{{ challenge.ports }}';
 </script>
 {% endblock %}
