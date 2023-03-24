@@ -22,7 +22,7 @@ CTFd.plugin.run((_CTFd) => {
             }
         });
     });
-        $("#docker_image").on("change", function() {
+        $("#dockerimage_select").on("change", function() {
             $.getJSON("/api/v1/docker_ports?image=" + this.value, function(result) {
                 $("#ports_text").text("Published Ports, Separated With Comma (Allowed Values: " + result["data"].join(", ") + "):");
             });
