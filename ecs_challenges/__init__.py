@@ -337,7 +337,7 @@ def define_ecs_status(app):
         id_name_map = {}
         for i in ecs_tasks:
             name = Users.query.filter_by(id=i.owner_id).first()
-            id_name_map[i.owner_id] = name.name
+            id_name_map[i.owner_id] = name.name if name else "[User Removed]"
         return render_template(
             "admin_ecs_status.html", tasks=ecs_tasks, id_name_map=id_name_map
         )
@@ -389,10 +389,12 @@ def define_ecs_history(app):
         id_challenge_map = {}
         for i in entries:
             name = Users.query.filter_by(id=i.user_id).first()
-            id_name_map[i.user_id] = name.name
+            id_name_map[i.user_id] = name.name if name else "[User Removed]"
         for i in entries:
             challenge = ECSChallenge.query.filter_by(id=i.challenge_id).first()
-            id_challenge_map[i.challenge_id] = challenge.name if challenge else ""
+            id_challenge_map[i.challenge_id] = (
+                challenge.name if challenge else "[Challenge Removed]"
+            )
         return render_template(
             "admin_ecs_history.html",
             guacamole_address=ecs.guacamole_address,
