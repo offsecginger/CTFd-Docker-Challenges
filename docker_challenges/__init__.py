@@ -288,29 +288,8 @@ def get_required_ports(docker, image):
 def create_container(docker, image, team, portbl):
     tls = docker.tls_enabled
     CERT = None
-    if not tls:
-        prefix = 'http'
-    else:
-        prefix = 'https'
-        try:
-            ca = docker.ca_cert
-            client = docker.client_cert
-            ckey = docker.client_key
-            ca_file = tempfile.NamedTemporaryFile(delete=False)
-            ca_file.write(ca)
-            ca_file.seek(0)
-            client_file = tempfile.NamedTemporaryFile(delete=False)
-            client_file.write(client)
-            client_file.seek(0)
-            key_file = tempfile.NamedTemporaryFile(delete=False)
-            key_file.write(ckey)
-            key_file.seek(0)
-            CERT = (client_file.name, key_file.name)
-        except:
-            print(traceback.print_exc())
-            return []
-    host = docker.hostname
-    URL_TEMPLATE = '%s://%s' % (prefix, host)
+    prefix = 'https' if tls else 'http'
+    URL_TEMPLATE = '%s://%s' % (prefix, docker.hostname)
     challenge = DockerChallenge.query.filter_by(docker_image=image).first()
     needed_ports = challenge.ports.split(',') if challenge.ports else get_required_ports(docker, image)
     team = hashlib.md5(team.encode("utf-8")).hexdigest()[:10]
@@ -338,10 +317,11 @@ def create_container(docker, image, team, portbl):
         params["HostConfig"]["CpuQuota"] = docker.cpu_quota
     data = json.dumps(params)
     if tls:
-        r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=CERT,
-                      verify=False, data=data, headers=headers)
+        cert = get_client_cert(docker)
+        r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=cert[0:2],
+                      verify=cert[2], data=data, headers=headers)
         result = r.json()
-        s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=CERT, verify=False,
+        s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=cert[0:2], verify=cert[2],
                           headers=headers)
     else:
         r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name),
