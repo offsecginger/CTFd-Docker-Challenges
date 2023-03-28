@@ -211,10 +211,11 @@ def do_request(docker, url, headers=None, method='GET'):
     URL_TEMPLATE = '%s://%s' % (prefix, host)
     try:
         if tls:
+            cert = get_client_cert(docker)
             if (method == 'GET'):
-                r = requests.get(url=f"%s{url}" % URL_TEMPLATE, cert=get_client_cert(docker), verify=False, headers=headers)
+                r = requests.get(url=f"%s{url}" % URL_TEMPLATE, cert=cert[0:2], verify=cert[2], headers=headers)
             elif (method == 'DELETE'):
-                r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, cert=get_client_cert(docker), verify=False, headers=headers)
+                r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, cert=cert[0:2], verify=cert[2], headers=headers)
         else:
             if (method == 'GET'):
                 r = requests.get(url=f"%s{url}" % URL_TEMPLATE, headers=headers)
@@ -232,15 +233,15 @@ def get_client_cert(docker):
         client = docker.client_cert
         ckey = docker.client_key
         ca_file = tempfile.NamedTemporaryFile(delete=False)
-        ca_file.write(ca)
+        ca_file.write(ca.encode('utf-8'))
         ca_file.seek(0)
         client_file = tempfile.NamedTemporaryFile(delete=False)
-        client_file.write(client)
+        client_file.write(client.encode('utf-8'))
         client_file.seek(0)
         key_file = tempfile.NamedTemporaryFile(delete=False)
-        key_file.write(ckey)
+        key_file.write(ckey.encode('utf-8'))
         key_file.seek(0)
-        CERT = (client_file.name, key_file.name)
+        CERT = (client_file.name, key_file.name, ca_file.name)
     except:
         print(traceback.print_exc())
         CERT = None
