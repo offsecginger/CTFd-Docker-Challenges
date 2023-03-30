@@ -1,39 +1,26 @@
 import traceback
 
-from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES, get_chal_class
+from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES
 from CTFd.plugins.flags import get_flag_class
 from CTFd.utils.user import get_ip
 from CTFd.utils.uploads import delete_file
-from CTFd.plugins import register_plugin_assets_directory, bypass_csrf_protection
-from CTFd.schemas.tags import TagSchema
-from CTFd.models import db, ma, Challenges, Teams, Users, Solves, Fails, Flags, Files, Hints, Tags, ChallengeFiles
-from CTFd.utils.decorators import admins_only, authed_only, during_ctf_time_only, require_verified_emails
-from CTFd.utils.decorators.visibility import check_challenge_visibility, check_score_visibility
+from CTFd.plugins import register_plugin_assets_directory
+from CTFd.models import db, Challenges, Teams, Users, Solves, Fails, Flags, Hints, Tags, ChallengeFiles
+from CTFd.utils.decorators import admins_only, authed_only
 from CTFd.utils.user import get_current_team
 from CTFd.utils.user import get_current_user
-from CTFd.utils.user import is_admin, authed
 from CTFd.utils.config import is_teams_mode
 from CTFd.api import CTFd_API_v1
-from CTFd.api.v1.scoreboard import ScoreboardDetail
-import CTFd.utils.scores
-from CTFd.api.v1.challenges import ChallengeList, Challenge
 from flask_restx import Namespace, Resource
-from flask import request, Blueprint, jsonify, abort, render_template, url_for, redirect, session
-# from flask_wtf import FlaskForm
+from flask import request, Blueprint, abort, render_template, session
 from wtforms import (
     FileField,
     HiddenField,
-    PasswordField,
+    IntegerField,
     RadioField,
-    SelectField,
     StringField,
-    TextAreaField,
     SelectMultipleField,
-    BooleanField,
 )
-# from wtforms import TextField, SubmitField, BooleanField, HiddenField, FileField, SelectMultipleField
-from wtforms.validators import DataRequired, ValidationError, InputRequired
-from werkzeug.utils import secure_filename
 import requests
 import tempfile
 from CTFd.utils.dates import unix_time
@@ -41,11 +28,9 @@ from datetime import datetime
 import json
 import hashlib
 import random
-from CTFd.plugins import register_admin_plugin_menu_bar
 
 from CTFd.forms import BaseForm
 from CTFd.forms.fields import SubmitField
-from CTFd.utils.config import get_themes
 
 
 class DockerConfig(db.Model):
@@ -58,6 +43,9 @@ class DockerConfig(db.Model):
     ca_cert = db.Column("ca_cert", db.String(2200), index=True)
     client_cert = db.Column("client_cert", db.String(2000), index=True)
     client_key = db.Column("client_key", db.String(3300), index=True)
+    memory_limit = db.Column("memory_limit", db.BigInteger)
+    cpu_period = db.Column("cpu_period", db.BigInteger)
+    cpu_quota = db.Column("cpu_quota", db.BigInteger)
     repositories = db.Column("repositories", db.String(1024), index=True)
 
 
@@ -85,6 +73,9 @@ class DockerConfigForm(BaseForm):
     ca_cert = FileField('CA Cert')
     client_cert = FileField('Client Cert')
     client_key = FileField('Client Key')
+    memory_limit = IntegerField('Memory Limit per Container (Bytes)')
+    cpu_period = IntegerField('CPU Period per Container (Microseconds)')
+    cpu_quota = IntegerField('CPU Quota per Container (Microseconds)')
     repositories = SelectMultipleField('Repositories')
     submit = SubmitField('Submit')
 
@@ -131,6 +122,9 @@ def define_docker_admin(app):
                 b.ca_cert = None
                 b.client_cert = None
                 b.client_key = None
+            b.memory_limit = None if request.form['memory_limit'] in [None, ''] else request.form['memory_limit']
+            b.cpu_period = None if request.form['cpu_period'] in [None, ''] else request.form['cpu_period']
+            b.cpu_quota = None if request.form['cpu_quota'] in [None, ''] else request.form['cpu_quota']
             try:
                 b.repositories = ','.join(request.form.to_dict(flat=False)['repositories'])
             except:
@@ -217,10 +211,11 @@ def do_request(docker, url, headers=None, method='GET'):
     URL_TEMPLATE = '%s://%s' % (prefix, host)
     try:
         if tls:
+            cert = get_client_cert(docker)
             if (method == 'GET'):
-                r = requests.get(url=f"%s{url}" % URL_TEMPLATE, cert=get_client_cert(docker), verify=False, headers=headers)
+                r = requests.get(url=f"%s{url}" % URL_TEMPLATE, cert=cert[0:2], verify=cert[2], headers=headers)
             elif (method == 'DELETE'):
-                r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, cert=get_client_cert(docker), verify=False, headers=headers)
+                r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, cert=cert[0:2], verify=cert[2], headers=headers)
         else:
             if (method == 'GET'):
                 r = requests.get(url=f"%s{url}" % URL_TEMPLATE, headers=headers)
@@ -238,15 +233,15 @@ def get_client_cert(docker):
         client = docker.client_cert
         ckey = docker.client_key
         ca_file = tempfile.NamedTemporaryFile(delete=False)
-        ca_file.write(ca)
+        ca_file.write(ca.encode('utf-8'))
         ca_file.seek(0)
         client_file = tempfile.NamedTemporaryFile(delete=False)
-        client_file.write(client)
+        client_file.write(client.encode('utf-8'))
         client_file.seek(0)
         key_file = tempfile.NamedTemporaryFile(delete=False)
-        key_file.write(ckey)
+        key_file.write(ckey.encode('utf-8'))
         key_file.seek(0)
-        CERT = (client_file.name, key_file.name)
+        CERT = (client_file.name, key_file.name, ca_file.name)
     except:
         print(traceback.print_exc())
         CERT = None
@@ -276,43 +271,27 @@ def get_unavailable_ports(docker):
     for i in r.json():
         if not i['Ports'] == []:
             for p in i['Ports']:
-                result.append(p['PublicPort'])
+                if 'PublicPort'in p:
+                    result.append(p['PublicPort'])
     return result
 
 
 def get_required_ports(docker, image):
     r = do_request(docker, f'/images/{image}/json?all=1')
-    result = r.json()['ContainerConfig']['ExposedPorts'].keys()
-    return result
+    result = r.json()
+    ports = (result['ContainerConfig']['ExposedPorts']\
+        if 'ExposedPorts' in result['ContainerConfig']\
+        else result['Config']['ExposedPorts']).keys()
+    return ports
 
 
 def create_container(docker, image, team, portbl):
     tls = docker.tls_enabled
     CERT = None
-    if not tls:
-        prefix = 'http'
-    else:
-        prefix = 'https'
-        try:
-            ca = docker.ca_cert
-            client = docker.client_cert
-            ckey = docker.client_key
-            ca_file = tempfile.NamedTemporaryFile(delete=False)
-            ca_file.write(ca)
-            ca_file.seek(0)
-            client_file = tempfile.NamedTemporaryFile(delete=False)
-            client_file.write(client)
-            client_file.seek(0)
-            key_file = tempfile.NamedTemporaryFile(delete=False)
-            key_file.write(ckey)
-            key_file.seek(0)
-            CERT = (client_file.name, key_file.name)
-        except:
-            print(traceback.print_exc())
-            return []
-    host = docker.hostname
-    URL_TEMPLATE = '%s://%s' % (prefix, host)
-    needed_ports = get_required_ports(docker, image)
+    prefix = 'https' if tls else 'http'
+    URL_TEMPLATE = '%s://%s' % (prefix, docker.hostname)
+    challenge = DockerChallenge.query.filter_by(docker_image=image).first()
+    needed_ports = challenge.ports.split(',') if challenge.ports else get_required_ports(docker, image)
     team = hashlib.md5(team.encode("utf-8")).hexdigest()[:10]
     container_name = "%s_%s" % (image.split(':')[1], team)
     assigned_ports = dict()
@@ -329,12 +308,20 @@ def create_container(docker, image, team, portbl):
         ports[i] = {}
         bindings[i] = [{"HostPort": tmp_ports.pop()}]
     headers = {'Content-Type': "application/json"}
-    data = json.dumps({"Image": image, "ExposedPorts": ports, "HostConfig": {"PortBindings": bindings}})
+    params = {"Image": image, "ExposedPorts": ports, "HostConfig": {"PortBindings": bindings}}
+    if docker.memory_limit:
+        params["HostConfig"]["Memory"] = docker.memory_limit
+    if docker.cpu_period:
+        params["HostConfig"]["CpuPeriod"] = docker.cpu_period
+    if docker.cpu_quota:
+        params["HostConfig"]["CpuQuota"] = docker.cpu_quota
+    data = json.dumps(params)
     if tls:
-        r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=CERT,
-                      verify=False, data=data, headers=headers)
+        cert = get_client_cert(docker)
+        r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=cert[0:2],
+                      verify=cert[2], data=data, headers=headers)
         result = r.json()
-        s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=CERT, verify=False,
+        s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=cert[0:2], verify=cert[2],
                           headers=headers)
     else:
         r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name),
@@ -422,6 +409,7 @@ class DockerChallengeType(BaseChallenge):
             'name': challenge.name,
             'value': challenge.value,
             'docker_image': challenge.docker_image,
+            'ports': challenge.ports,
             'description': challenge.description,
             'category': challenge.category,
             'state': challenge.state,
@@ -536,6 +524,7 @@ class DockerChallenge(Challenges):
     __mapper_args__ = {'polymorphic_identity': 'docker'}
     id = db.Column(None, db.ForeignKey('challenges.id'), primary_key=True)
     docker_image = db.Column(db.String(128), index=True)
+    ports = db.Column(db.String(128), nullable=True)
 
 
 # API
@@ -672,6 +661,27 @@ class DockerAPI(Resource):
                    }, 400
 
 
+docker_ports_namespace = Namespace("docker", description='Endpoint to retrieve docker image exposed ports')
+
+
+@docker_ports_namespace.route("", methods=['POST', 'GET'])
+class DockerPortsAPI(Resource):
+    """
+    This is for creating Docker Challenges. The purpose of this API is to populate the Docker Image exposed ports Select form
+    object in the Challenge Creation Screen.
+    """
+
+    @admins_only
+    def get(self):
+        image = request.args.get('image')
+        docker = DockerConfig.query.filter_by(id=1).first()
+        exposed_ports = list(get_required_ports(docker, image))
+        return {
+            'success': True,
+            'data': exposed_ports
+        }
+
+
 def load(app):
     app.db.create_all()
     CHALLENGE_CLASSES['docker'] = DockerChallengeType
@@ -679,6 +689,7 @@ def load(app):
     define_docker_admin(app)
     define_docker_status(app)
     CTFd_API_v1.add_namespace(docker_namespace, '/docker')
+    CTFd_API_v1.add_namespace(docker_ports_namespace, '/docker_ports')
     CTFd_API_v1.add_namespace(container_namespace, '/container')
     CTFd_API_v1.add_namespace(active_docker_namespace, '/docker_status')
     CTFd_API_v1.add_namespace(kill_container, '/nuke')
