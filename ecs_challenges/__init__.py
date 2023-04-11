@@ -1120,7 +1120,7 @@ class TaskAPI(Resource):
         # If this container is already created, we don't need another one.
         if (
             check != None
-            and not (unix_time(datetime.utcnow()) - int(check.timestamp)) >= 300
+            and not (unix_time(datetime.utcnow()) - int(check.timestamp)) >= 30
         ):
             return abort(403)
         # The exception would be if we are reverting a box. So we'll delete it if it exists and has been around for more than 5 minutes.
@@ -1146,7 +1146,7 @@ class TaskAPI(Resource):
                 challenge_id=challenge.id,
                 task_definition=challenge.task_definition,
                 timestamp=unix_time(datetime.utcnow()),
-                revert_time=unix_time(datetime.utcnow()) + 300,
+                revert_time=unix_time(datetime.utcnow()) + 30,
                 instance_id=result["tasks"][0]["taskArn"],
                 ports="",
                 flag=flag,

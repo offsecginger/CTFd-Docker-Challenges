@@ -41,28 +41,23 @@ function get_ecs_status(challenge) {
     fetch("/api/v1/ecs_status").then(result => result.json()).then(result => {
         if (!result['data'].some((item, i) => {
             if (item.challenge_id == challenge) {
-                document.querySelector('#ecs_container').innerHTML = `<pre>ECS Task Information:<br /><div class="mt-2" id="${String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_")}_revert_container"></div><div class="mt-2" id="${String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_")}_connect_to_container"></div>`;
-                var countDownDate = new Date(parseInt(item.revert_time) * 1000).getTime();
-
+                document.querySelector('#ecs_container').innerHTML = `<div class="mt-2" id="${String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_")}_revert_container"></div><div class="mt-2" id="${String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_")}_connect_to_container"></div>`;
                 let running = false;
 
                 let revert_section = document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_revert_container");
                 let connect_section = document.querySelector("#" + String(item.instance_id).replaceAll(":", "_").replaceAll("/", "_") + "_connect_to_container");
 
+                let initSecond = Math.floor(new Date().getTime() / 1000);
+
                 let status_check_interval = setInterval(function () {
-                    var now = new Date().getTime();
-                    var distance = countDownDate - now;
-                    var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-                    var seconds = Math.floor((distance % (1000 * 60)) / 1000);
-                    if (seconds < 10) {
-                        seconds = "0" + seconds
-                    }
-                    revert_section.innerHTML = 'Able to stop/reset container in ' + minutes + ':' + seconds;
-                    if (distance < 0) {
-                        clearInterval(status_check_interval);
-                        revert_section.innerHTML = `<a onclick="start_container('${item.challenge_id}');" class='btn btn-dark'><small style='color:white;'><i style='margin-right: 5px;' class="fas fa-redo"></i>Reset</small></a>`;
-                        revert_section.innerHTML += `<a onclick="stop_container('${item.challenge_id}', '${item.instance_id}');" class='btn btn-dark'><small style='color:white;'><i style='margin-right: 5px;' class="fas fa-stop"></i>Stop</small></a>`;
-                    }
+                    let currentSecond = Math.floor(new Date().getTime() / 1000);
+                    let deltaSecond = Math.floor((currentSecond - initSecond) / 10);
+                    let funny_words = [
+                        'Provisioning ECS tasks...',
+                        'Creating Security Groups...',
+                        'Getting Guacamole ready...',
+                        'Injecting flags...'
+                    ]
 
                     if (item.guacamole) {
                         if (!running) {
@@ -71,12 +66,14 @@ function get_ecs_status(challenge) {
                                     if (result['data']['healthy']) {
                                         running = true;
                                         connect_section.innerHTML = ``;
+                                        clearInterval(status_check_interval);
+                                        revert_section.innerHTML = `<a onclick="start_container('${item.challenge_id}');" class='btn btn-danger'><small style='color:white;'><i style='margin-right: 5px;' class="fas fa-redo"></i>Reset Challenge</small></a>`;
                                         if (item.ssh)
-                                            connect_section.innerHTML += `<a onclick="connect_to_container('${item.challenge_id}', 'ssh');" class='btn btn-dark'><small style='color:white;'>Connect via SSH</small></a>`;
+                                            connect_section.innerHTML += `<a onclick="connect_to_container('${item.challenge_id}', 'ssh');" class='btn btn-success'><small style='color:white;'>Connect to Terminal</small></a>`;
                                         if (item.vnc)
-                                            connect_section.innerHTML += `<a onclick="connect_to_container('${item.challenge_id}', 'vnc');" class='btn btn-dark'><small style='color:white;'>Connect via VNC</small></a>`;
+                                            connect_section.innerHTML += `<a onclick="connect_to_container('${item.challenge_id}', 'vnc');" class='btn btn-success'><small style='color:white;'>Connect to Desktop</small></a>`;
                                     } else {
-                                        connect_section.innerHTML = `<span>Container Status: ${result['data']['healthy'] ? '' : 'STARTING'}</span>`;
+                                        connect_section.innerHTML = `<span>Your container is starting, this shouldn't take longer than a minute and a half</span><br><br><br><span>${funny_words[deltaSecond % funny_words.length]}</span>`;
                                     }
                                 }
                             });
@@ -88,8 +85,10 @@ function get_ecs_status(challenge) {
                                     if (result['data']['healthy']) {
                                         running = true;
                                         connect_section.innerHTML = `<span>IP: ${result['public_ip']}</small>`;
+                                        clearInterval(status_check_interval);
+                                        revert_section.innerHTML = `<a onclick="start_container('${item.challenge_id}');" class='btn btn-danger'><small style='color:white;'><i style='margin-right: 5px;' class="fas fa-redo"></i>Reset Challenge</small></a>`;
                                     } else {
-                                        connect_section.innerHTML = `<span>Container Status: ${result['data']['healthy'] ? '' : 'STARTING'}</span>`;
+                                        connect_section.innerHTML = `<span>Your container is starting, this shouldn't take longer than a minute and a half</span><br><br><br><span>${funny_words[deltaSecond % funny_words.length]}</span>`;
                                     }
                                 }
                             });
@@ -101,8 +100,8 @@ function get_ecs_status(challenge) {
         })) {
             // No existing challenge, inject the start button
             document.querySelector('#ecs_container').innerHTML = `<span>
-                <a onclick="start_container('${CTFd.lib.$('#challenge-id').val()}');" class='btn btn-dark'>
-                    <small style='color:white;'><i class="fas fa-play"></i> Start ECS Task</small>
+                <a onclick="start_container('${CTFd.lib.$('#challenge-id').val()}');" class='btn btn-success'>
+                    <small style='color:white;'><i class="fas fa-play"></i>Start Challenge</small>
                 </a>
             </span>`
         }
