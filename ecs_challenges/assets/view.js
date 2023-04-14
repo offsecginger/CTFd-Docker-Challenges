@@ -51,12 +51,14 @@ function get_ecs_status(challenge) {
 
                 let status_check_interval = setInterval(function () {
                     let currentSecond = Math.floor(new Date().getTime() / 1000);
-                    let deltaSecond = Math.floor((currentSecond - initSecond) / 10);
+                    let deltaSecond = Math.floor((currentSecond - initSecond) / 5);
                     let funny_words = [
                         'Provisioning ECS tasks...',
                         'Creating Security Groups...',
                         'Getting Guacamole ready...',
-                        'Injecting flags...'
+                        'Injecting flags...',
+                        'Creating IAM roles...',
+                        'Creating policies...'
                     ]
 
                     if (item.guacamole) {
@@ -101,7 +103,7 @@ function get_ecs_status(challenge) {
             // No existing challenge, inject the start button
             document.querySelector('#ecs_container').innerHTML = `<span>
                 <a onclick="start_container('${CTFd.lib.$('#challenge-id').val()}');" class='btn btn-success'>
-                    <small style='color:white;'><i class="fas fa-play"></i>Start Challenge</small>
+                    <small style='color:white;'><i style='margin-right: 5px;' class="fas fa-play"></i>Start Challenge</small>
                 </a>
             </span>`
         }
