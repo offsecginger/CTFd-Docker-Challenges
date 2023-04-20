@@ -7,6 +7,7 @@ from CTFd.plugins.challenges import BaseChallenge, CHALLENGE_CLASSES, get_chal_c
 from CTFd.plugins.flags import get_flag_class
 from CTFd.utils.user import get_ip
 from CTFd.utils.uploads import delete_file
+from CTFd.utils import get_config
 from CTFd.plugins import register_plugin_assets_directory, bypass_csrf_protection
 from CTFd.plugins.migrations import upgrade
 from CTFd.schemas.tags import TagSchema
@@ -714,6 +715,10 @@ def create_task(
                 ).all()
             ):
                 return False, ["You have already solved this task!"]
+
+    # Prevent users from starting tasks when the CTF is paused
+    if not is_admin() and get_config("paused", 0) == 1:
+        return False, ["Cannot start challenges whilst CTF is paused!"]
 
     environment_variables = [
         (
