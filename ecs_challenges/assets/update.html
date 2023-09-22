@@ -25,6 +25,8 @@
     <select id="subnets_select" name="subnets" class="form-control" required multiple size="6"></select>
     <label for="security_group" id="security_group_label">Security Group:</label>
     <select id="security_group_select" name="security_group" class="form-control" required></select>
+    <label for="guide">Guide:</label>
+    <textarea id="guide" class="form-control markdown" name="guide" rows="10"></textarea>
 </div>
 {% endblock %}
 {% block footer %}
@@ -34,5 +36,7 @@
     var ECS_SECURITY_GROUP = '{{ challenge.security_group }}';
     var ECS_FLAG_CONTAINERS = {{ challenge.flag_containers | safe}};
     var ECS_LAUNCH_TYPE = '{{ challenge.launch_type }}';
+    var ECS_GUIDE = {{ challenge.guide | tojson }};
+    document.querySelector("#guide").value = ECS_GUIDE;
 </script>
 {% endblock %}

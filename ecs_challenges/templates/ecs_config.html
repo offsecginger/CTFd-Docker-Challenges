@@ -140,6 +140,16 @@
                     {% endif %}
                 </div>
 
+                <div class="form-group">
+                    <label for="guide_enabled">
+                        Hint sidebar enabled
+                    </label>
+                    <select name="guide_enabled" id="guide_enabled" class='form-control' size='2'>
+                        <option value="true" {{ "selected" if config.guide_enabled else "" }}>True</option>
+                        <option value="false" {{ "selected" if not config.guide_enabled else "" }}>False</option>
+                    </select>
+                </div>
+
                 {{ form.nonce() }}
                 <div class="col-md-13 text-center">
                     <button type="submit" tabindex="0" class="btn btn-md btn-primary btn-outlined">

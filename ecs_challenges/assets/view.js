@@ -146,8 +146,12 @@ function connect_to_container(challenge, protocol) {
         console.log(result);
 
         if (result['success']) {
-            fetch(`${window.location.protocol}//${result['data'][0]}/guacamole/api/tokens`, { method: 'POST', headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ 'data': result['data'][1] }) }).then(result => result.json()).then(auth => {
-                window.open(`${window.location.protocol}//${result['data'][0]}/guacamole/?token=${auth['authToken']}`, "_blank");
+            fetch(`${window.location.protocol}//${result['data']['guacamole_address']}/guacamole/api/tokens`, { method: 'POST', headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ 'data': result['data']['jwt'] })/*, credentials: 'include'*/ }).then(result => result.json()).then(auth => {
+                if (!result['data']['use_internal_viewer']) {
+                    window.open(`${window.location.protocol}//${result['data']['guacamole_address']}/guacamole/?token=${auth['authToken']}`, "_blank");
+                } else {
+                    window.open(`/guacamole_viewer?guacamole_access_token=${auth['authToken']}&challenge_id=${challenge}`, "_blank");
+                }
             });
         } else {
             ezal({

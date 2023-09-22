@@ -94,6 +94,8 @@ from Crypto.Util.Padding import pad
 from base64 import b64encode
 import uuid
 
+from .models import *
+from .guacamole_viewer import define_guacamole_viewer
 
 GUACAMOLE_JSON_SECRET_KEY = os.environ.get("GUACAMOLE_JSON_SECRET_KEY")
 
@@ -157,71 +159,6 @@ class guacamole:
         return payload
 
 
-class ECSConfig(db.Model):
-    """
-    ECS Config Model. This model stores the config for AWS connections and ECS cluster config.
-    """
-
-    id = db.Column(db.Integer, primary_key=True)
-    task_definitions = db.Column("repositories", db.Text)
-
-    active_vpc = db.Column("active_vpc", db.String(64), index=True)
-
-    aws_access_key_id = db.Column("aws_access_key_id", db.String(20))
-    aws_secret_access_key = db.Column("aws_secret_access_key", db.String(40))
-    cluster = db.Column("cluster", db.String(128))
-
-    subnets = db.Column("subnets", db.Text)
-    security_groups = db.Column("security_groups", db.Text)
-
-    region = db.Column("region", db.String(32))
-
-    guacamole_address = db.Column("guacamole_address", db.String(128))
-
-    guacamole_json_secret_key = db.Column("guacamole_json_secret_key", db.String(128))
-
-    filter_tag = db.Column("filter_tag", db.String(128))
-
-
-class ECSChallengeTracker(db.Model):
-    """
-    ECS Task Tracker. This model stores the users/teams active ECS tasks.
-    """
-
-    id = db.Column(db.Integer, primary_key=True)
-    owner_id = db.Column("owner_id", db.String(64), index=True)
-    task_definition = db.Column("task_definition", db.String(128), index=True)
-    challenge_id = db.Column("challenge_id", db.Integer, index=True)
-    timestamp = db.Column("timestamp", db.Integer, index=True)
-    revert_time = db.Column("revert_time", db.Integer, index=True)
-    instance_id = db.Column("instance_id", db.String(128), index=True)
-    ports = db.Column("ports", db.String(128), index=True)
-    host = db.Column("host", db.String(128), index=True)
-    flag = db.Column("flag", db.String(128), index=True)
-
-
-class ECSChallenge(Challenges):
-    __mapper_args__ = {"polymorphic_identity": "ecs"}
-    id = db.Column(None, db.ForeignKey("challenges.id"), primary_key=True)
-    task_definition = db.Column(db.String(128), index=True)
-    subnets = db.Column(db.Text)
-    security_group = db.Column(db.String(128), index=True)
-    launch_type = db.Column(db.String(32))
-
-    ssh_container = db.Column(
-        db.String(128)
-    )  # These could end up being the same but we'll track them separately.
-    vnc_container = db.Column(db.String(128))
-    flag_containers = db.Column(db.Text)
-
-
-class ECSHistory(db.Model):
-    id = db.Column(db.Integer, primary_key=True, index=True)
-    user_id = db.Column(db.Integer)
-    recording_uuid = db.Column(db.Text)
-    challenge_id = db.Column(db.Integer)
-
-
 class ECSConfigForm(BaseForm):
     id = HiddenField()
     aws_access_key_id = StringField(
@@ -274,6 +211,8 @@ def define_ecs_admin(app):
             ecs.active_vpc = request.form.to_dict(flat=False).get("active_vpc")[0]
 
             ecs.filter_tag = request.form.to_dict(flat=False).get("filter_tag")[0]
+
+            ecs.guide_enabled = "true" == request.form.get("guide_enabled", False)
 
             # Fetch the subnets and security groups associated with this VPC
 
@@ -474,6 +413,7 @@ def get_task_definitions(ecs):
         ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
+        aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
     )
 
     taskDefs = [
@@ -495,6 +435,7 @@ def get_clusters(ecs):
         ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
+        aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
     )
 
     clusters = ecs_client.describe_clusters(
@@ -510,6 +451,7 @@ def get_vpcs(ecs):
         ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
+        aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
     )
 
     vpc_descr = ec2_client.describe_vpcs()
@@ -533,6 +475,7 @@ def get_subnets(ecs, vpc):
         ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
+        aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
     )
 
     subnets = [
@@ -564,6 +507,7 @@ def get_security_groups(ecs, vpc):
         ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
+        aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
     )
 
     security_groups = [
@@ -588,6 +532,7 @@ def get_address_of_task_container(ecs, task, container_name):
         ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
+        aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
     )
 
     task = ecs_client.describe_tasks(cluster=ecs.cluster, tasks=[task])["tasks"][0]
@@ -628,6 +573,7 @@ def get_address_of_task_container(ecs, task, container_name):
             ecs.region,
             aws_access_key_id=ecs.aws_access_key_id,
             aws_secret_access_key=ecs.aws_secret_access_key,
+            aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
         ).NetworkInterface(eni_id)
 
         return eni.association_attribute["PublicIp"]
@@ -639,6 +585,7 @@ def stop_task(ecs, task_id):
         region_name=ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
+        aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
     )
 
     ecs_client.stop_task(
@@ -659,6 +606,7 @@ def stop_task(ecs, task_id):
             region_name=ecs.region,
             aws_access_key_id=ecs.aws_access_key_id,
             aws_secret_access_key=ecs.aws_secret_access_key,
+            aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
         )
 
         ec2_client.terminate_instances(
@@ -674,6 +622,7 @@ def create_task(
         region_name=ecs.region,
         aws_access_key_id=ecs.aws_access_key_id,
         aws_secret_access_key=ecs.aws_secret_access_key,
+        aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
     )
 
     session = get_current_user()
@@ -704,14 +653,14 @@ def create_task(
         if is_teams_mode():
             if len(
                 Solves.query.filter_by(
-                    challenge_id=challenge.id, team_id=session.id
+                    challenge_id=challenge.id, team_id=get_current_team().id
                 ).all()
             ):
                 return False, ["You have already solved this task!"]
         else:
             if len(
                 Solves.query.filter_by(
-                    challenge_id=challenge.id, user_id=session.id
+                    challenge_id=challenge.id, user_id=get_current_user().id
                 ).all()
             ):
                 return False, ["You have already solved this task!"]
@@ -847,6 +796,7 @@ class ECSChallengeType(BaseChallenge):
             ecs.region,
             aws_access_key_id=ecs.aws_access_key_id,
             aws_secret_access_key=ecs.aws_secret_access_key,
+            aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
         )
 
         if data.get("task_definition"):
@@ -919,6 +869,7 @@ class ECSChallengeType(BaseChallenge):
             "flag_containers": challenge.flag_containers or "{}",
             "security_group": challenge.security_group,
             "launch_type": challenge.launch_type,
+            "guide": challenge.guide,
             "type_data": {
                 "id": ECSChallengeType.id,
                 "name": ECSChallengeType.name,
@@ -956,6 +907,7 @@ class ECSChallengeType(BaseChallenge):
             ecs.region,
             aws_access_key_id=ecs.aws_access_key_id,
             aws_secret_access_key=ecs.aws_secret_access_key,
+            aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
         )
         taskDefinition = data["task_definition"]
         containerDefs = ecs_client.describe_task_definition(
@@ -1185,6 +1137,7 @@ class TaskStatus(Resource):
             ecs.region,
             aws_access_key_id=ecs.aws_access_key_id,
             aws_secret_access_key=ecs.aws_secret_access_key,
+            aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
         )
 
         taskInstance = request.args.get("taskInst")
@@ -1244,6 +1197,7 @@ class ContainerFetcher(Resource):
             ecs.region,
             aws_access_key_id=ecs.aws_access_key_id,
             aws_secret_access_key=ecs.aws_secret_access_key,
+            aws_session_token=os.environ.get("AWS_SESSION_TOKEN"),
         )
         taskDefinition = request.args.get("taskDef")
 
@@ -1274,7 +1228,7 @@ class JWTFetcher(Resource):
         ecs = ECSConfig.query.filter_by(id=1).first()
 
         if ecs.guacamole_address is None:
-            return {"success": False, "data": []}
+            return {"success": False, "data": {}}
 
         protocol = request.args.get("protocol")
 
@@ -1282,7 +1236,7 @@ class JWTFetcher(Resource):
         challenge = ECSChallenge.query.filter_by(id=challenge_id).first()
         if not is_admin():
             if challenge is None:
-                return {"success": False, "data": []}
+                return {"success": False, "data": {}}
 
         # Get the ECSChallengeTracker for this container
 
@@ -1297,7 +1251,7 @@ class JWTFetcher(Resource):
                 challenge_id=challenge_id, owner_id=session.id
             ).first()
         if container is None:
-            return {"success": False, "data": []}
+            return {"success": False, "data": {}}
 
         # Identify the IP address of the container
 
@@ -1310,10 +1264,10 @@ class JWTFetcher(Resource):
                 ecs, container.instance_id, challenge.vnc_container
             )
         else:
-            return {"success": False, "data": []}
+            return {"success": False, "data": {}}
 
         if address is None:
-            return {"success": False, "data": []}
+            return {"success": False, "data": {}}
 
         # Create a ECSHistory entry for the connection
 
@@ -1336,7 +1290,14 @@ class JWTFetcher(Resource):
         )
         jwt = guacamole.encryptJWT(GUACAMOLE_JSON_SECRET_KEY, json.dumps(payload))
 
-        return {"success": True, "data": [ecs.guacamole_address, jwt.decode("UTF-8")]}
+        return {
+            "success": True,
+            "data": {
+                "guacamole_address": ecs.guacamole_address,
+                "jwt": jwt.decode("UTF-8"),
+                "use_internal_viewer": ecs.guide_enabled,
+            },
+        }
 
 
 active_ecs_namespace = Namespace(
@@ -1435,6 +1396,7 @@ def load(app):
     define_ecs_admin(app)
     define_ecs_status(app)
     define_ecs_history(app)
+    define_guacamole_viewer(app)
     CTFd_API_v1.add_namespace(ecs_namespace, "/ecs")
     CTFd_API_v1.add_namespace(ecs_config_namespace, "/ecs_config")
     CTFd_API_v1.add_namespace(task_namespace, "/task")

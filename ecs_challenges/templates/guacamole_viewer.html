@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <link rel="stylesheet" href="/plugins/ecs_challenges/assets/guacamole_viewer.css" />
+    <script src="/plugins/ecs_challenges/assets/guacamole.min.js"></script>
+    <script>
+        var GUACAMOLE_ADDRESS = `{{ guacamole_address | urlencode }}`;
+    </script>
+    <script src="/plugins/ecs_challenges/assets/guacamole_viewer.js"></script>
+    <title>Guacamole Viewer</title>
+</head>
+
+<body>
+    <div id="client"></div>
+    <a id="guide_open" href="#" onclick="openguide()">Open Guide</a>
+    <div id="guide">
+        <a id="guide_close" href="#" onclick="closeguide()">Close Guide</a>
+        <div id="resize_bar"></div>
+        <div id="guide_content">
+            <div class="intro">
+                <ul>
+                    <li>Click to expand each of the sections</li>
+                    <li>Code blocks <code>look like this</code> and can be clicked to copy their content</li>
+                    <li>You can click images to expand them, and click anywhere again to minimise them.</li>
+                </ul>
+                Whilst you can refer to the guide as freely as you want, we encourage you to explore the challenges
+                yourself
+                first!
+            </div>
+            {{ guide | markdown | safe }}
+        </div>
+    </div>
+    <div id="full_image">
+        <div id="full_image_container">
+            <span id="full_image_close_button">X</span>
+            <img id="full_image_img" />
+        </div>
+    </div>
+</body>
+
+</html>
