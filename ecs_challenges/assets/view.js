@@ -150,7 +150,7 @@ function connect_to_container(challenge, protocol) {
                 if (!result['data']['use_internal_viewer']) {
                     window.open(`${window.location.protocol}//${result['data']['guacamole_address']}/guacamole/?token=${auth['authToken']}`, "_blank");
                 } else {
-                    window.open(`/guacamole_viewer?access_token=${auth['authToken']}&challenge_id=${challenge}`, "_blank");
+                    window.open(`/challenge_player?access_token=${auth['authToken']}&challenge_id=${challenge}`, "_blank");
                 }
             });
         } else {
