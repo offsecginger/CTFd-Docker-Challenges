@@ -71,7 +71,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     let websocket_url = `wss://${decodeURIComponent(GUACAMOLE_ADDRESS)}/guacamole/websocket-tunnel`;
 
-    let tunnel = new Guacamole.WebSocketTunnel(`${websocket_url}?token=${getParams['guacamole_access_token']}&GUAC_ID=1&GUAC_DATA_SOURCE=json&GUAC_TYPE=c&GUAC_TIMEZONE=Europe%2FLondon`);
+    let tunnel = new Guacamole.WebSocketTunnel(`${websocket_url}?token=${getParams['access_token']}&GUAC_ID=1&GUAC_DATA_SOURCE=json&GUAC_TYPE=c&GUAC_TIMEZONE=Europe%2FLondon`);
     client = new Guacamole.Client(tunnel);
     let element = client.getDisplay().getElement();
     document.querySelector("#client").appendChild(element);
