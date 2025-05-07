@@ -43,7 +43,7 @@ Works with 3.2.1
 * Updated the entire plugin to work with the new CTFd.
 
 ### Update: 20250507
-Works with 3.2.1 and added features:
+Works with 3.7.7 and added features:
 * Proper check for duplicate containers, a user can run only one at a time.
 * Added stop container function.
 * Enhanced the Status panel for Admins.
