@@ -74,7 +74,7 @@ class DockerChallengeTracker(db.Model):
     instance_id = db.Column("instance_id", db.String(128), index=True)
     ports = db.Column('ports', db.String(128), index=True)
     host = db.Column('host', db.String(128), index=True)
-
+    challenge = db.Column('challenge', db.String(256), index=True)
 
 class DockerConfigForm(BaseForm):
     id = HiddenField()
@@ -258,7 +258,7 @@ def get_repositories(docker, tags=False, repos=False):
     r = do_request(docker, '/images/json?all=1')
     result = list()
     for i in r.json():
-        if not i['RepoTags'] == None:
+        if not i['RepoTags'] == []:
             if not i['RepoTags'][0].split(':')[0] == '<none>':
                 if repos:
                     if not i['RepoTags'][0].split(':')[0] in repos:
@@ -282,7 +282,7 @@ def get_unavailable_ports(docker):
 
 def get_required_ports(docker, image):
     r = do_request(docker, f'/images/{image}/json?all=1')
-    result = r.json()['ContainerConfig']['ExposedPorts'].keys()
+    result = r.json()['Config']['ExposedPorts'].keys()
     return result
 
 
@@ -549,11 +549,15 @@ class ContainerAPI(Resource):
     def get(self):
         container = request.args.get('name')
         if not container:
-            return abort(403)
+            return abort(403, "No container specified")
+        challenge = request.args.get('challenge')
+        if not challenge:
+            return abort(403, "No challenge name specified")
+        
         docker = DockerConfig.query.filter_by(id=1).first()
         containers = DockerChallengeTracker.query.all()
         if container not in get_repositories(docker, tags=True):
-            return abort(403)
+            return abort(403,f"Container {container} not present in the repository.")
         if is_teams_mode():
             session = get_current_team()
             # First we'll delete all old docker containers (+2 hours)
@@ -571,9 +575,20 @@ class ContainerAPI(Resource):
                     DockerChallengeTracker.query.filter_by(instance_id=i.instance_id).delete()
                     db.session.commit()
             check = DockerChallengeTracker.query.filter_by(user_id=session.id).filter_by(docker_image=container).first()
+        
+        request_to_stop = request.args.get('stopcontainer')
         # If this container is already created, we don't need another one.
         if check != None and not (unix_time(datetime.utcnow()) - int(check.timestamp)) >= 300:
-            return abort(403)
+            return abort(403,"To prevent abuse, dockers can be reverted and stopped after 5 minutes of creation.")
+        # Delete when requested
+        elif check != None and request_to_stop:
+            delete_container(docker, check.instance_id)
+            if is_teams_mode():
+                DockerChallengeTracker.query.filter_by(team_id=session.id).filter_by(docker_image=container).delete()
+            else:
+                DockerChallengeTracker.query.filter_by(user_id=session.id).filter_by(docker_image=container).delete()
+            db.session.commit()
+            return {"result": "Container stopped"}
         # The exception would be if we are reverting a box. So we'll delete it if it exists and has been around for more than 5 minutes.
         elif check != None:
             delete_container(docker, check.instance_id)
@@ -582,6 +597,13 @@ class ContainerAPI(Resource):
             else:
                 DockerChallengeTracker.query.filter_by(user_id=session.id).filter_by(docker_image=container).delete()
             db.session.commit()
+        
+        # Check if a container is already running for this user. We need to recheck the DB first
+        containers = DockerChallengeTracker.query.all()
+        for i in containers:
+            if int(session.id) == int(i.user_id):
+                return abort(403,f"Another container is already running for challenge:<br><i><b>{i.challenge}</b></i>.<br>Please stop this first.<br>You can only run one container.")
+
         portsbl = get_unavailable_ports(docker)
         create = create_container(docker, container, session.name, portsbl)
         ports = json.loads(create[1])['HostConfig']['PortBindings'].values()
@@ -593,7 +615,8 @@ class ContainerAPI(Resource):
             revert_time=unix_time(datetime.utcnow()) + 300,
             instance_id=create[0]['Id'],
             ports=','.join([p[0]['HostPort'] for p in ports]),
-            host=str(docker.hostname).split(':')[0]
+            host=str(docker.hostname).split(':')[0],
+            challenge=challenge
         )
         db.session.add(entry)
         db.session.commit()
@@ -672,9 +695,13 @@ class DockerAPI(Resource):
                    }, 400
 
 
+
 def load(app):
     app.db.create_all()
     CHALLENGE_CLASSES['docker'] = DockerChallengeType
+    @app.template_filter('datetimeformat')
+    def datetimeformat(value, format='%Y-%m-%d %H:%M:%S'):
+        return datetime.fromtimestamp(value).strftime(format)
     register_plugin_assets_directory(app, base_path='/plugins/docker_challenges/assets')
     define_docker_admin(app)
     define_docker_status(app)
