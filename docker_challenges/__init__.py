@@ -47,6 +47,8 @@ from CTFd.forms import BaseForm
 from CTFd.forms.fields import SubmitField
 from CTFd.utils.config import get_themes
 
+from pathlib import Path
+
 
 class DockerConfig(db.Model):
     """
@@ -106,17 +108,17 @@ def define_docker_admin(app):
             try:
                 ca_cert = request.files['ca_cert'].stream.read()
             except:
-                print(traceback.print_exc())
+                traceback.print_exc()
                 ca_cert = ''
             try:
                 client_cert = request.files['client_cert'].stream.read()
             except:
-                print(traceback.print_exc())
+                traceback.print_exc()
                 client_cert = ''
             try:
                 client_key = request.files['client_key'].stream.read()
             except:
-                print(traceback.print_exc())
+                traceback.print_exc()
                 client_key = ''
             if len(ca_cert) != 0: b.ca_cert = ca_cert
             if len(client_cert) != 0: b.client_cert = client_cert
@@ -134,7 +136,7 @@ def define_docker_admin(app):
             try:
                 b.repositories = ','.join(request.form.to_dict(flat=False)['repositories'])
             except:
-                print(traceback.print_exc())
+                traceback.print_exc()
                 b.repositories = None
             db.session.add(b)
             db.session.commit()
@@ -142,7 +144,7 @@ def define_docker_admin(app):
         try:
             repos = get_repositories(docker)
         except:
-            print(traceback.print_exc())
+            traceback.print_exc()
             repos = list()
         if len(repos) == 0:
             form.repositories.choices = [("ERROR", "Failed to Connect to Docker")]
@@ -155,7 +157,7 @@ def define_docker_admin(app):
                 selected_repos = list()
         # selected_repos = dconfig.repositories.split(',')
         except:
-            print(traceback.print_exc())
+            traceback.print_exc()
             selected_repos = []
         return render_template("docker_config.html", config=dconfig, form=form, repos=selected_repos)
 
@@ -217,40 +219,46 @@ def do_request(docker, url, headers=None, method='GET'):
     URL_TEMPLATE = '%s://%s' % (prefix, host)
     try:
         if tls:
+            cert, verify = get_client_cert(docker)
             if (method == 'GET'):
-                r = requests.get(url=f"%s{url}" % URL_TEMPLATE, cert=get_client_cert(docker), verify=False, headers=headers)
+                r = requests.get(url=f"%s{url}" % URL_TEMPLATE, cert=cert, verify=verify, headers=headers)
             elif (method == 'DELETE'):
-                r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, cert=get_client_cert(docker), verify=False, headers=headers)
+                r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, cert=cert, verify=verify, headers=headers)
+            # Clean up the cert files:
+            for file_path in [*cert, verify]:
+                if file_path:
+                    Path(file_path).unlink(missing_ok=True)
         else:
             if (method == 'GET'):
                 r = requests.get(url=f"%s{url}" % URL_TEMPLATE, headers=headers)
             elif (method == 'DELETE'):
                 r = requests.delete(url=f"%s{url}" % URL_TEMPLATE, headers=headers)
     except:
-        print(traceback.print_exc())
+        traceback.print_exc()
         r = []
     return r
 
 
 def get_client_cert(docker):
+    # this can be done more efficiently, but works for now.
     try:
         ca = docker.ca_cert
         client = docker.client_cert
         ckey = docker.client_key
         ca_file = tempfile.NamedTemporaryFile(delete=False)
-        ca_file.write(ca)
+        ca_file.write(ca.encode())
         ca_file.seek(0)
         client_file = tempfile.NamedTemporaryFile(delete=False)
-        client_file.write(client)
+        client_file.write(client.encode())
         client_file.seek(0)
         key_file = tempfile.NamedTemporaryFile(delete=False)
-        key_file.write(ckey)
+        key_file.write(ckey.encode())
         key_file.seek(0)
         CERT = (client_file.name, key_file.name)
     except:
-        print(traceback.print_exc())
+        traceback.print_exc()
         CERT = None
-    return CERT
+    return CERT, ca_file.name
 
 
 # For the Docker Config Page. Gets the Current Repositories available on the Docker Server.
@@ -293,23 +301,6 @@ def create_container(docker, image, team, portbl):
         prefix = 'http'
     else:
         prefix = 'https'
-        try:
-            ca = docker.ca_cert
-            client = docker.client_cert
-            ckey = docker.client_key
-            ca_file = tempfile.NamedTemporaryFile(delete=False)
-            ca_file.write(ca)
-            ca_file.seek(0)
-            client_file = tempfile.NamedTemporaryFile(delete=False)
-            client_file.write(client)
-            client_file.seek(0)
-            key_file = tempfile.NamedTemporaryFile(delete=False)
-            key_file.write(ckey)
-            key_file.seek(0)
-            CERT = (client_file.name, key_file.name)
-        except:
-            print(traceback.print_exc())
-            return []
     host = docker.hostname
     URL_TEMPLATE = '%s://%s' % (prefix, host)
     needed_ports = get_required_ports(docker, image)
@@ -331,11 +322,17 @@ def create_container(docker, image, team, portbl):
     headers = {'Content-Type': "application/json"}
     data = json.dumps({"Image": image, "ExposedPorts": ports, "HostConfig": {"PortBindings": bindings}})
     if tls:
-        r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=CERT,
-                      verify=False, data=data, headers=headers)
+        cert, verify = get_client_cert(docker)
+        r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name), cert=cert,
+                      verify=verify, data=data, headers=headers)
         result = r.json()
-        s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=CERT, verify=False,
+        s = requests.post(url="%s/containers/%s/start" % (URL_TEMPLATE, result['Id']), cert=cert, verify=verify,
                           headers=headers)
+        # Clean up the cert files:
+        for file_path in [*cert, verify]:
+            if file_path:
+                Path(file_path).unlink(missing_ok=True)
+
     else:
         r = requests.post(url="%s/containers/create?name=%s" % (URL_TEMPLATE, container_name),
                           data=data, headers=headers)
@@ -576,12 +573,11 @@ class ContainerAPI(Resource):
                     db.session.commit()
             check = DockerChallengeTracker.query.filter_by(user_id=session.id).filter_by(docker_image=container).first()
         
-        request_to_stop = request.args.get('stopcontainer')
         # If this container is already created, we don't need another one.
         if check != None and not (unix_time(datetime.utcnow()) - int(check.timestamp)) >= 300:
             return abort(403,"To prevent abuse, dockers can be reverted and stopped after 5 minutes of creation.")
         # Delete when requested
-        elif check != None and request_to_stop:
+        elif check != None and request.args.get('stopcontainer'):
             delete_container(docker, check.instance_id)
             if is_teams_mode():
                 DockerChallengeTracker.query.filter_by(team_id=session.id).filter_by(docker_image=container).delete()
