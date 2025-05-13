@@ -282,9 +282,10 @@ def get_unavailable_ports(docker):
     r = do_request(docker, '/containers/json?all=1')
     result = list()
     for i in r.json():
-        if not i['Ports'] == []:
+        if i.get('Ports'):
             for p in i['Ports']:
-                result.append(p['PublicPort'])
+                if 'PublicPort' in p:
+                    result.append(p['PublicPort'])
     return result
 
 
